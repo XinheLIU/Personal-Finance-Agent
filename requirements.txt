@@ -1,0 +1,7 @@
+backtrader
+akshare
+matplotlib
+pandas
+loguru
+yfinance
+seaborn

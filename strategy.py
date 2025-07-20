@@ -1,0 +1,636 @@
+import backtrader as bt
+import pandas as pd
+import numpy as np
+import os
+import akshare as ak
+from logger import LOG
+
+class DynamicAllocationStrategy(bt.Strategy):
+    """
+    Dynamic Asset Allocation Strategy based on valuation metrics and market conditions.
+    
+    This strategy implements a sophisticated multi-asset allocation approach that:
+    1. Dynamically adjusts portfolio weights based on PE ratio percentiles
+    2. Considers US 10Y Treasury yield conditions for bond allocation
+    3. Implements automatic rebalancing when weights deviate from targets
+    4. Tracks portfolio performance for visualization and analysis
+    
+    Strategy Rules:
+    - Chinese Stocks (A股): CSI300 (20% × (1-PE percentile)), CSI500 (20% × (1-PE percentile))
+    - Hong Kong Tech: HSTECH (10% × (1-PE percentile))
+    - US Stocks: SP500 (15% × (1-PE percentile)), NASDAQ100 (15% × (1-PE percentile))
+    - Bonds: TLT (15% × (yield percentile)²)
+    - Cash: Money market allocation when US 10Y yield ≥ 4%
+    - Gold: Fixed 10% allocation
+    - Rebalancing: Triggered when any asset deviates >1% from target weight
+    """
+    
+    params = (
+        ('rebalance_days', 30),  # Rebalance every 30 days
+        ('threshold', 0.01),     # 1% threshold for rebalancing
+    )
+    
+    def __init__(self):
+        """Initialize the dynamic allocation strategy with data loading and setup"""
+        # Load historical market data for PE and yield calculations
+        self.load_market_data()
+        self.load_pe_data()
+        
+        # Rebalancing control variables
+        self.last_rebalance = 0
+        self.target_weights = {}
+        self.current_weights = {}
+        
+        # Portfolio value tracking for visualization and performance analysis
+        self.portfolio_values = []
+        self.portfolio_dates = []
+        
+        # Map strategy asset names to backtrader data feeds
+        self.data_feeds = {
+            'CSI300': self.datas[0] if len(self.datas) > 0 else None,      # Chinese large-cap stocks
+            'CSI500': self.datas[1] if len(self.datas) > 1 else None,      # Chinese mid-cap stocks
+            'HSTECH': self.datas[2] if len(self.datas) > 2 else None,      # Hong Kong tech stocks
+            'SP500': self.datas[3] if len(self.datas) > 3 else None,       # US large-cap stocks
+            'NASDAQ100': self.datas[4] if len(self.datas) > 4 else None,   # US tech stocks
+            'TLT': self.datas[5] if len(self.datas) > 5 else None,         # Long-term US Treasury bonds
+            'GLD': self.datas[6] if len(self.datas) > 6 else None,         # Gold ETF
+            'CASH': self.datas[7] if len(self.datas) > 7 else None,        # Money market/cash
+        }
+        
+    def load_market_data(self):
+        """
+        Load historical price data for all assets from CSV files.
+        
+        This method loads the price data needed for:
+        - PE ratio calculations (using price data as fallback)
+        - US 10Y Treasury yield data for bond allocation decisions
+        - Market data validation and analysis
+        """
+        try:
+            # Load CSI300 data (Chinese large-cap index)
+            csi300_files = [f for f in os.listdir('data') if f.startswith('CSI300_price_') and f.endswith('.csv')]
+            if csi300_files:
+                csi300_file = sorted(csi300_files)[-1]
+                self.csi300_data = pd.read_csv(f'data/{csi300_file}')
+                if '日期' in self.csi300_data.columns:
+                    self.csi300_data['日期'] = pd.to_datetime(self.csi300_data['日期'])
+                    self.csi300_data.set_index('日期', inplace=True)
+                else:
+                    self.csi300_data['date'] = pd.to_datetime(self.csi300_data['date'])
+                    self.csi300_data.set_index('date', inplace=True)
+            
+            # Load CSI500 data (Chinese mid-cap index)
+            csi500_files = [f for f in os.listdir('data') if f.startswith('CSI500_price_') and f.endswith('.csv')]
+            if csi500_files:
+                csi500_file = sorted(csi500_files)[-1]
+                self.csi500_data = pd.read_csv(f'data/{csi500_file}')
+                if '日期' in self.csi500_data.columns:
+                    self.csi500_data['日期'] = pd.to_datetime(self.csi500_data['日期'])
+                    self.csi500_data.set_index('日期', inplace=True)
+                else:
+                    self.csi500_data['date'] = pd.to_datetime(self.csi500_data['date'])
+                    self.csi500_data.set_index('date', inplace=True)
+            
+            # Load HSTECH data (Hong Kong tech index)
+            hstech_files = [f for f in os.listdir('data') if f.startswith('HSTECH_price_') and f.endswith('.csv')]
+            if hstech_files:
+                hstech_file = sorted(hstech_files)[-1]
+                self.hstech_data = pd.read_csv(f'data/{hstech_file}')
+                if '日期' in self.hstech_data.columns:
+                    self.hstech_data['日期'] = pd.to_datetime(self.hstech_data['日期'])
+                    self.hstech_data.set_index('日期', inplace=True)
+                else:
+                    self.hstech_data['date'] = pd.to_datetime(self.hstech_data['date'])
+                    self.hstech_data.set_index('date', inplace=True)
+            
+            # Load US10Y data (US 10-year Treasury yield)
+            us10y_files = [f for f in os.listdir('data') if f.startswith('US10Y_price_') and f.endswith('.csv')]
+            if us10y_files:
+                us10y_file = sorted(us10y_files)[-1]
+                self.us10y_data = pd.read_csv(f'data/{us10y_file}')
+                self.us10y_data['date'] = pd.to_datetime(self.us10y_data['date'])
+                self.us10y_data.set_index('date', inplace=True)
+            
+            # Load SP500 data (US large-cap index)
+            sp500_files = [f for f in os.listdir('data') if f.startswith('SP500_price_') and f.endswith('.csv')]
+            if sp500_files:
+                sp500_file = sorted(sp500_files)[-1]
+                self.sp500_data = pd.read_csv(f'data/{sp500_file}')
+                self.sp500_data['date'] = pd.to_datetime(self.sp500_data['date'])
+                self.sp500_data.set_index('date', inplace=True)
+            
+            # Load NASDAQ100 data (US tech index)
+            nasdaq_files = [f for f in os.listdir('data') if f.startswith('NASDAQ100_price_') and f.endswith('.csv')]
+            if nasdaq_files:
+                nasdaq_file = sorted(nasdaq_files)[-1]
+                self.nasdaq_data = pd.read_csv(f'data/{nasdaq_file}')
+                self.nasdaq_data['date'] = pd.to_datetime(self.nasdaq_data['date'])
+                self.nasdaq_data.set_index('date', inplace=True)
+            
+            LOG.info("Market data loaded successfully")
+            
+        except Exception as e:
+            LOG.error(f"Error loading market data: {e}")
+            # Initialize empty dataframes as fallback
+            self.csi300_data = pd.DataFrame()
+            self.csi500_data = pd.DataFrame()
+            self.hstech_data = pd.DataFrame()
+            self.us10y_data = pd.DataFrame()
+            self.sp500_data = pd.DataFrame()
+            self.nasdaq_data = pd.DataFrame()
+    
+    def load_pe_data(self):
+        """
+        Load PE (Price-to-Earnings) ratio data from CSV files.
+        
+        PE ratios are crucial for the strategy as they determine:
+        - How expensive/cheap each asset is relative to historical levels
+        - Target allocation weights (lower PE percentiles = higher allocations)
+        - Market timing decisions for rebalancing
+        """
+        self.pe_cache = {}
+        LOG.info("Loading PE ratio data from files...")
+        
+        # PE data file mapping with new naming convention
+        pe_assets = ['CSI300', 'CSI500', 'HSTECH', 'SP500', 'NASDAQ100']
+        
+        for asset in pe_assets:
+            try:
+                # Look for PE files with the new naming convention
+                pe_files = [f for f in os.listdir('data') if f.startswith(f'{asset}_pe_') and f.endswith('.csv')]
+                
+                if pe_files:
+                    pe_file = sorted(pe_files)[-1]  # Use the most recent file
+                    pe_df = pd.read_csv(f'data/{pe_file}')
+                    
+                    # Standardize date column and ensure timezone-naive
+                    if 'date' in pe_df.columns:
+                        pe_df['date'] = pd.to_datetime(pe_df['date'], utc=True).dt.tz_localize(None)
+                        pe_df.set_index('date', inplace=True)
+                    elif '日期' in pe_df.columns:
+                        pe_df['日期'] = pd.to_datetime(pe_df['日期'])
+                        pe_df.set_index('日期', inplace=True)
+                    
+                    # Store in cache
+                    self.pe_cache[asset] = pe_df
+                    LOG.info(f"Loaded {asset} PE data: {len(pe_df)} records")
+                else:
+                    LOG.warning(f"PE data file not found for {asset}")
+                    self.pe_cache[asset] = pd.DataFrame()
+                    
+            except Exception as e:
+                LOG.error(f"Error loading PE data for {asset}: {e}")
+                self.pe_cache[asset] = pd.DataFrame()
+        
+        loaded_assets = [k for k, v in self.pe_cache.items() if not v.empty]
+        LOG.info(f"PE data loading complete. Loaded data for: {loaded_assets}")
+    
+    def calculate_pe_percentile(self, asset_name, current_date, years=10):
+        """
+        Calculate PE percentile for a given asset over a specified time period.
+        
+        The PE percentile indicates how expensive an asset is relative to its historical levels:
+        - 90th percentile = Very expensive (only 10% of historical periods were more expensive)
+        - 50th percentile = Average valuation
+        - 10th percentile = Very cheap (only 10% of historical periods were cheaper)
+        
+        Args:
+            asset_name (str): Name of the asset (e.g., 'CSI300', 'SP500')
+            current_date: Current date for the calculation
+            years (int): Number of years to look back for historical PE data
+            
+        Returns:
+            float: PE percentile between 0.1 and 0.9 (10% to 90%)
+        """
+        if asset_name not in self.pe_cache or self.pe_cache[asset_name].empty:
+            error_msg = f"No PE data available for {asset_name}. Please ensure PE data is downloaded using data_download.py"
+            LOG.error(error_msg)
+            raise ValueError(error_msg)
+            
+        try:
+            pe_data = self.pe_cache[asset_name]
+            end_date = pd.to_datetime(current_date)
+            
+            # Ensure timezone-naive datetime for comparison
+            if end_date.tz is not None:
+                end_date = end_date.tz_localize(None)
+            
+            start_date = end_date - pd.DateOffset(years=years)
+            
+            # Ensure PE data index is also timezone-naive
+            if hasattr(pe_data.index, 'tz') and pe_data.index.tz is not None:
+                pe_data = pe_data.copy()
+                pe_data.index = pe_data.index.tz_localize(None)
+            
+            # Filter PE data for the specified period
+            period_pe_data = pe_data.loc[start_date:end_date]
+            if period_pe_data.empty:
+                error_msg = f"No PE data in {years}-year period for {asset_name}. Data range: {pe_data.index.min()} to {pe_data.index.max()}"
+                LOG.error(error_msg)
+                raise ValueError(error_msg)
+            
+            # Get PE column - prioritize actual PE ratios over estimates
+            if 'pe_ratio' in period_pe_data.columns:
+                pe_col = 'pe_ratio'
+                pe_type = 'PE'
+            elif 'avg_pe' in period_pe_data.columns:
+                pe_col = 'avg_pe'
+                pe_type = 'Avg PE'
+            elif 'median_pe' in period_pe_data.columns:
+                pe_col = 'median_pe'
+                pe_type = 'Median PE'
+            elif 'equal_weight_pe' in period_pe_data.columns:
+                pe_col = 'equal_weight_pe'
+                pe_type = 'Equal Weight PE'
+            elif 'pe' in period_pe_data.columns:
+                pe_col = 'pe'
+                pe_type = 'PE'
+            elif 'estimated_pe' in period_pe_data.columns:
+                pe_col = 'estimated_pe'
+                pe_type = 'Est. PE'
+            else:
+                # Fallback to first numeric column
+                numeric_cols = period_pe_data.select_dtypes(include=[np.number]).columns
+                if len(numeric_cols) > 0:
+                    pe_col = numeric_cols[0]
+                    pe_type = 'PE'
+                else:
+                    error_msg = f"No numeric PE column found for {asset_name}. Available columns: {list(period_pe_data.columns)}"
+                    LOG.error(error_msg)
+                    raise ValueError(error_msg)
+            
+            # Remove invalid PE values (negative, zero, or extremely high)
+            valid_pe_data = period_pe_data[pe_col].dropna()
+            valid_pe_data = valid_pe_data[(valid_pe_data > 0) & (valid_pe_data < 200)]
+            
+            if valid_pe_data.empty:
+                error_msg = f"No valid {pe_type} data for {asset_name} in the specified period"
+                LOG.error(error_msg)
+                raise ValueError(error_msg)
+                
+            # Get current PE (most recent valid value)
+            current_pe = valid_pe_data.iloc[-1]
+            
+            # Calculate percentile (what % of historical PEs are below current PE)
+            percentile = (valid_pe_data <= current_pe).mean()
+            
+            # Clamp between 10% and 90% for safety
+            percentile = min(max(percentile, 0.1), 0.9)
+            
+            LOG.info(f"{asset_name} - Current {pe_type}: {current_pe:.2f}, Percentile: {percentile:.2%}")
+            return percentile
+            
+        except Exception as e:
+            LOG.error(f"Error calculating PE percentile for {asset_name}: {e}")
+            raise
+    
+    def calculate_yield_percentile(self, current_date, years=20):
+        """
+        Calculate US 10Y Treasury yield percentile over a specified time period.
+        
+        The yield percentile is used to determine bond allocation:
+        - Higher yield percentiles = Higher bond allocations (bonds more attractive)
+        - Lower yield percentiles = Lower bond allocations (bonds less attractive)
+        
+        Args:
+            current_date: Current date for the calculation
+            years (int): Number of years to look back for historical yield data
+            
+        Returns:
+            float: Yield percentile between 0.1 and 0.9 (10% to 90%)
+        """
+        if self.us10y_data.empty:
+            error_msg = "No US 10Y yield data available. Please ensure US10Y.csv is downloaded."
+            LOG.error(error_msg)
+            raise ValueError(error_msg)
+            
+        try:
+            end_date = pd.to_datetime(current_date)
+            start_date = end_date - pd.DateOffset(years=years)
+            
+            period_data = self.us10y_data.loc[start_date:end_date]
+            if period_data.empty:
+                error_msg = f"No yield data in {years}-year period. Data range: {self.us10y_data.index.min()} to {self.us10y_data.index.max()}"
+                LOG.error(error_msg)
+                raise ValueError(error_msg)
+                
+            current_yield = period_data['close'].iloc[-1]
+            percentile = (period_data['close'] <= current_yield).mean()
+            
+            return min(max(percentile, 0.1), 0.9)
+            
+        except Exception as e:
+            LOG.error(f"Error calculating yield percentile: {e}")
+            raise
+    
+    def get_current_yield(self, current_date):
+        """
+        Get current US 10Y Treasury yield for cash allocation decisions.
+        
+        When yield >= 4%, the strategy allocates to cash/money market instruments.
+        This provides a yield-seeking component to the portfolio.
+        
+        Args:
+            current_date: Current date to get yield for
+            
+        Returns:
+            float: Current US 10Y yield percentage
+        """
+        if self.us10y_data.empty:
+            LOG.warning("No US 10Y yield data available, using default 4.0%")
+            return 4.0  # Default
+            
+        try:
+            # Get the most recent yield data
+            recent_data = self.us10y_data.loc[:pd.to_datetime(current_date)]
+            if recent_data.empty:
+                LOG.warning("No recent yield data available, using default 4.0%")
+                return 4.0
+            return recent_data['close'].iloc[-1]
+        except Exception as e:
+            LOG.warning(f"Error getting current yield, using default 4.0%: {e}")
+            return 4.0
+    
+    def calculate_target_weights(self, current_date):
+        """
+        Calculate target allocation weights based on current market conditions.
+        
+        This is the core of the strategy - it determines how much to allocate to each asset
+        based on valuation metrics and market conditions:
+        
+        - Chinese stocks: Allocated based on PE percentiles (cheaper = more allocation)
+        - US stocks: Allocated based on PE percentiles (cheaper = more allocation)
+        - Bonds: Allocated based on yield percentiles (higher yields = more allocation)
+        - Cash: Allocated when yields are attractive (≥4%)
+        - Gold: Fixed 10% allocation for diversification
+        
+        Args:
+            current_date: Current date for weight calculations
+            
+        Returns:
+            dict: Target weights for each asset
+        """
+        weights = {}
+        
+        try:
+            # Get PE percentiles for A-shares (10 years of history)
+            csi300_pe_pct = self.calculate_pe_percentile('CSI300', current_date, 10)
+            csi500_pe_pct = self.calculate_pe_percentile('CSI500', current_date, 10)
+            hstech_pe_pct = self.calculate_pe_percentile('HSTECH', current_date, 10)
+            
+            # Get PE percentiles for US stocks (20 years of history)
+            sp500_pe_pct = self.calculate_pe_percentile('SP500', current_date, 20)
+            nasdaq_pe_pct = self.calculate_pe_percentile('NASDAQ100', current_date, 20)
+            
+            # Get yield percentile and current yield
+            yield_pct = self.calculate_yield_percentile(current_date, 20)
+            current_yield = self.get_current_yield(current_date)
+            
+            # A股配置 (Chinese stocks) - 20% base allocation each
+            weights['CSI300'] = 0.20 * (1 - csi300_pe_pct)  # Cheaper = higher allocation
+            weights['CSI500'] = 0.20 * (1 - csi500_pe_pct)  # Cheaper = higher allocation
+            
+            # 港股配置 (Hong Kong stocks) - 10% base allocation
+            weights['HSTECH'] = 0.10 * (1 - hstech_pe_pct)  # Cheaper = higher allocation
+            
+            # 美股配置 (US stocks) - 15% base allocation each
+            weights['SP500'] = 0.15 * (1 - sp500_pe_pct)    # Cheaper = higher allocation
+            weights['NASDAQ100'] = 0.15 * (1 - nasdaq_pe_pct)  # Cheaper = higher allocation
+            
+            # 个股配置 (Individual stocks) - skip for now
+            individual_stocks = 0.03
+            
+            # 债券配置 (Bonds) - TLT allocation based on yield attractiveness
+            weights['TLT'] = 0.15 * (yield_pct ** 2)  # Higher yields = more bond allocation
+            
+            # 美元货基 (Money market) - when yield >= 4%
+            if current_yield >= 4.0:
+                weights['CASH'] = current_yield / 100.0  # Allocate yield percentage to cash
+            else:
+                weights['CASH'] = 0.0
+            
+            # 黄金 (Gold) - fixed 10% allocation for diversification
+            weights['GLD'] = 0.10
+            
+            # Calculate allocated percentage
+            total_allocated = sum(weights.values()) + individual_stocks
+            
+            # 剩余资金配置易方达中债 (Remaining to Chinese bonds)
+            chinese_bonds = max(0, 1.0 - total_allocated)
+            
+            # Normalize weights (exclude Chinese bonds and individual stocks for now)
+            total_weight = sum(weights.values())
+            if total_weight > 0:
+                # Scale down to leave room for Chinese bonds and individual stocks
+                scale_factor = (1.0 - chinese_bonds - individual_stocks) / total_weight
+                for asset in weights:
+                    weights[asset] *= scale_factor
+            
+            # Add debug info
+            LOG.info(f"Date: {current_date}")
+            LOG.info(f"PE Percentiles - CSI300: {csi300_pe_pct:.2%}, CSI500: {csi500_pe_pct:.2%}, HSTECH: {hstech_pe_pct:.2%}")
+            LOG.info(f"PE Percentiles - SP500: {sp500_pe_pct:.2%}, NASDAQ: {nasdaq_pe_pct:.2%}")
+            LOG.info(f"Yield: {current_yield:.2f}%, Percentile: {yield_pct:.2%}")
+            LOG.info(f"Target weights: {weights}")
+            
+            return weights
+            
+        except Exception as e:
+            LOG.error(f"Error calculating target weights: {e}")
+            raise
+    
+    def get_current_weights(self):
+        """
+        Calculate current portfolio weights based on actual positions.
+        
+        This method determines what the current allocation looks like
+        compared to the target allocation for rebalancing decisions.
+        
+        Returns:
+            dict: Current weights for each asset
+        """
+        total_value = self.broker.getvalue()
+        weights = {}
+        
+        for name, data_feed in self.data_feeds.items():
+            if data_feed is not None:
+                position = self.getposition(data_feed)
+                if position.size != 0:
+                    position_value = position.size * data_feed.close[0]
+                    weights[name] = position_value / total_value
+                else:
+                    weights[name] = 0.0
+            else:
+                weights[name] = 0.0
+                
+        return weights
+    
+    def need_rebalancing(self, target_weights, current_weights):
+        """
+        Check if rebalancing is needed based on weight deviations.
+        
+        Rebalancing is triggered when any asset's current weight deviates
+        more than the threshold (1%) from its target weight.
+        
+        Args:
+            target_weights (dict): Target allocation weights
+            current_weights (dict): Current allocation weights
+            
+        Returns:
+            bool: True if rebalancing is needed, False otherwise
+        """
+        for asset in target_weights:
+            current_weight = current_weights.get(asset, 0)
+            target_weight = target_weights[asset]
+            
+            if abs(current_weight - target_weight) > self.params.threshold:
+                return True
+        return False
+    
+    def rebalance_portfolio(self, target_weights):
+        """
+        Rebalance portfolio to match target weights.
+        
+        This method executes the actual trades to bring the portfolio
+        in line with the target allocation. It:
+        1. Calculates required trades for each asset
+        2. Executes buy/sell orders to achieve target weights
+        3. Logs all trading activity for transparency
+        
+        Args:
+            target_weights (dict): Target allocation weights to achieve
+        """
+        total_value = self.broker.getvalue()
+        
+        LOG.info(f"Rebalancing portfolio with total value: {total_value:.2f}")
+        
+        for asset, target_weight in target_weights.items():
+            data_feed = self.data_feeds.get(asset)
+            if data_feed is None:
+                continue
+                
+            target_value = total_value * target_weight
+            current_position = self.getposition(data_feed)
+            current_value = current_position.size * data_feed.close[0]
+            
+            if target_value == 0 and current_position.size > 0:
+                # Close position if target weight is 0
+                self.close(data_feed)
+                LOG.info(f"Closing {asset} position")
+            elif target_value > 0:
+                # Calculate target shares and required trades
+                target_shares = int(target_value / data_feed.close[0])
+                shares_to_trade = target_shares - current_position.size
+                
+                if abs(shares_to_trade) > 0:
+                    if shares_to_trade > 0:
+                        # Buy shares to increase position
+                        self.buy(data=data_feed, size=shares_to_trade)
+                        LOG.info(f"Buying {shares_to_trade} shares of {asset}")
+                    else:
+                        # Sell shares to decrease position
+                        self.sell(data=data_feed, size=abs(shares_to_trade))
+                        LOG.info(f"Selling {abs(shares_to_trade)} shares of {asset}")
+    
+    def next(self):
+        """
+        Main strategy logic executed on each trading day.
+        
+        This method is called by backtrader for each data point and:
+        1. Tracks portfolio value for visualization
+        2. Checks if rebalancing is needed (every 30 days or on strategy start)
+        3. Calculates new target weights based on current market conditions
+        4. Executes rebalancing trades if necessary
+        5. Handles errors gracefully with proper logging
+        """
+        current_date = self.datas[0].datetime.date(0)
+        
+        # Track portfolio value for visualization and performance analysis
+        portfolio_value = self.broker.getvalue()
+        self.portfolio_values.append(portfolio_value)
+        self.portfolio_dates.append(current_date)
+        
+        # Rebalance periodically (every 30 days) or on strategy start
+        if (len(self) - self.last_rebalance >= self.params.rebalance_days) or len(self) == 1:
+            
+            try:
+                # Calculate target weights based on current market conditions
+                target_weights = self.calculate_target_weights(current_date)
+                current_weights = self.get_current_weights()
+                
+                # Check if rebalancing is needed (any weight deviation > 1%)
+                if self.need_rebalancing(target_weights, current_weights) or len(self) == 1:
+                    self.rebalance_portfolio(target_weights)
+                    self.last_rebalance = len(self)
+                    self.target_weights = target_weights.copy()
+                    self.current_weights = current_weights.copy()
+                    
+            except Exception as e:
+                LOG.error(f"Strategy execution failed on {current_date}: {e}")
+                # Stop the strategy when critical errors occur to prevent incorrect allocations
+                raise
+
+
+class BuyAndHoldStrategy(bt.Strategy):
+    """
+    Simple Buy and Hold Strategy for performance comparison.
+    
+    This strategy implements a basic buy-and-hold approach that:
+    1. Buys the maximum number of shares possible with available cash on the first day
+    2. Holds the position for the entire backtest period
+    3. Tracks portfolio value for visualization and comparison
+    4. Serves as a benchmark to evaluate the dynamic allocation strategy
+    
+    This is a passive strategy that represents the simplest form of investing:
+    - No rebalancing
+    - No market timing
+    - No active management
+    - Pure exposure to the underlying asset's performance
+    """
+    
+    def __init__(self):
+        """Initialize the buy and hold strategy"""
+        self.bought = False  # Flag to track if initial purchase has been made
+        # Portfolio value tracking for visualization and performance analysis
+        self.portfolio_values = []
+        self.portfolio_dates = []
+        self.shares_bought = 0  # Track shares manually for accurate value calculation
+
+    def next(self):
+        """
+        Main strategy logic executed on each trading day.
+        
+        This method:
+        1. Tracks portfolio value for visualization
+        2. Executes the initial purchase on the first day
+        3. Logs portfolio performance for debugging and analysis
+        """
+        # Track portfolio value for visualization
+        current_price = self.datas[0].close[0]
+        portfolio_value = self.shares_bought * current_price + self.broker.get_cash()
+        self.portfolio_values.append(portfolio_value)
+        self.portfolio_dates.append(self.datas[0].datetime.date(0))
+        
+        # Execute initial purchase if not already done
+        if not self.bought:
+            # Calculate how many shares we can buy with all available cash
+            cash = self.broker.get_cash()
+            price = self.datas[0].close[0]
+            if price > 0:
+                shares = int(cash / price)
+                if shares > 0:
+                    # Execute the purchase
+                    self.buy(data=self.datas[0], size=shares)
+                    self.shares_bought = shares  # Track shares manually for accurate calculations
+                    LOG.info(f"Buy and Hold: Bought {shares} shares at ${price:.2f}")
+                    LOG.info(f"Buy and Hold: Initial investment: ${shares * price:,.2f}")
+                else:
+                    LOG.warning(f"Buy and Hold: Not enough cash to buy shares. Cash: ${cash:.2f}, Price: ${price:.2f}")
+            else:
+                LOG.error(f"Buy and Hold: Invalid price: {price}")
+            self.bought = True
+        
+        # Log current portfolio value for debugging (every 1000 days)
+        if len(self) % 1000 == 0:
+            current_value = self.shares_bought * current_price + self.broker.get_cash()
+            LOG.info(f"Buy and Hold Day {len(self)}: Price=${current_price:.2f}, Shares={self.shares_bought}, Value=${current_value:,.2f}")
