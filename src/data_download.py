@@ -3,7 +3,8 @@ import pandas as pd
 import os
 import argparse
 from datetime import datetime
-from logger import LOG
+from src.app_logger import LOG
+from src.config import ASSETS, PE_ASSETS
 
 def get_data_range_info(df):
     """Extract data range information from DataFrame"""
@@ -298,24 +299,11 @@ def main(refresh=False):
     # Ensure data directory exists
     os.makedirs('data', exist_ok=True)
     
-    # Asset configuration
-    assets = {
-        'CSI300': {'akshare': '000300', 'yfinance': None},
-        'CSI500': {'akshare': '000905', 'yfinance': None},
-        'HSTECH': {'akshare': '399006', 'yfinance': '^HSI'},  # Fallback to Hang Seng
-        'SP500': {'akshare': None, 'yfinance': '^GSPC'},
-        'NASDAQ100': {'akshare': None, 'yfinance': '^NDX'},
-        'TLT': {'akshare': None, 'yfinance': 'TLT'},
-        'GLD': {'akshare': None, 'yfinance': 'GLD'},
-        'CASH': {'akshare': None, 'yfinance': 'CASHX'},
-        'US10Y': {'akshare': None, 'yfinance': '^TNX'},
-    }
-    
     downloaded_files = []
     
     # Download price data
     LOG.info("=== Downloading Price Data ===")
-    for asset_name, config in assets.items():
+    for asset_name, config in ASSETS.items():
         try:
             filepath, start_date, end_date = download_asset_data(
                 asset_name, 
@@ -330,15 +318,7 @@ def main(refresh=False):
     
     # Download PE data for assets that support it
     LOG.info("=== Downloading PE Data ===")
-    pe_assets = {
-        'CSI300': {'akshare': 'INDEX_PE', 'yfinance': None},
-        'CSI500': {'akshare': 'MARKET_PE', 'yfinance': None},
-        'HSTECH': {'akshare': None, 'yfinance': '^HSI'},
-        'SP500': {'akshare': None, 'yfinance': '^GSPC'},
-        'NASDAQ100': {'akshare': None, 'yfinance': '^NDX'},
-    }
-    
-    for asset_name, config in pe_assets.items():
+    for asset_name, config in PE_ASSETS.items():
         try:
             filepath, start_date, end_date = download_pe_data(
                 asset_name,

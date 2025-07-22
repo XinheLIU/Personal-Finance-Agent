@@ -1,0 +1,126 @@
+import pandas as pd
+import numpy as np
+from src.app_logger import LOG
+
+def calculate_pe_percentile(asset_name, pe_cache, current_date, years=10):
+    """
+    Calculate PE percentile for a given asset over a specified time period.
+    """
+    if asset_name not in pe_cache or pe_cache[asset_name].empty:
+        error_msg = f"No PE data available for {asset_name}. Please ensure PE data is downloaded using data_download.py"
+        LOG.error(error_msg)
+        raise ValueError(error_msg)
+        
+    try:
+        pe_data = pe_cache[asset_name]
+        end_date = pd.to_datetime(current_date)
+        
+        if end_date.tz is not None:
+            end_date = end_date.tz_localize(None)
+        
+        start_date = end_date - pd.DateOffset(years=years)
+        
+        if hasattr(pe_data.index, 'tz') and pe_data.index.tz is not None:
+            pe_data = pe_data.copy()
+            pe_data.index = pe_data.index.tz_localize(None)
+        
+        period_pe_data = pe_data.loc[start_date:end_date]
+        if period_pe_data.empty:
+            error_msg = f"No PE data in {years}-year period for {asset_name}. Data range: {pe_data.index.min()} to {pe_data.index.max()}"
+            LOG.error(error_msg)
+            raise ValueError(error_msg)
+        
+        if 'pe_ratio' in period_pe_data.columns:
+            pe_col = 'pe_ratio'
+            pe_type = 'PE'
+        elif 'avg_pe' in period_pe_data.columns:
+            pe_col = 'avg_pe'
+            pe_type = 'Avg PE'
+        elif 'median_pe' in period_pe_data.columns:
+            pe_col = 'median_pe'
+            pe_type = 'Median PE'
+        elif 'equal_weight_pe' in period_pe_data.columns:
+            pe_col = 'equal_weight_pe'
+            pe_type = 'Equal Weight PE'
+        elif 'pe' in period_pe_data.columns:
+            pe_col = 'pe'
+            pe_type = 'PE'
+        elif 'estimated_pe' in period_pe_data.columns:
+            pe_col = 'estimated_pe'
+            pe_type = 'Est. PE'
+        else:
+            numeric_cols = period_pe_data.select_dtypes(include=[np.number]).columns
+            if len(numeric_cols) > 0:
+                pe_col = numeric_cols[0]
+                pe_type = 'PE'
+            else:
+                error_msg = f"No numeric PE column found for {asset_name}. Available columns: {list(period_pe_data.columns)}"
+                LOG.error(error_msg)
+                raise ValueError(error_msg)
+        
+        valid_pe_data = period_pe_data[pe_col].dropna()
+        valid_pe_data = valid_pe_data[(valid_pe_data > 0) & (valid_pe_data < 200)]
+        
+        if valid_pe_data.empty:
+            error_msg = f"No valid {pe_type} data for {asset_name} in the specified period"
+            LOG.error(error_msg)
+            raise ValueError(error_msg)
+            
+        current_pe = valid_pe_data.iloc[-1]
+        
+        percentile = (valid_pe_data <= current_pe).mean()
+        
+        percentile = min(max(percentile, 0.1), 0.9)
+        
+        LOG.info(f"{asset_name} - Current {pe_type}: {current_pe:.2f}, Percentile: {percentile:.2%}")
+        return percentile
+        
+    except Exception as e:
+        LOG.error(f"Error calculating PE percentile for {asset_name}: {e}")
+        raise
+
+def calculate_yield_percentile(market_data, current_date, years=20):
+    """
+    Calculate US 10Y Treasury yield percentile over a specified time period.
+    """
+    if market_data['US10Y'].empty:
+        error_msg = "No US 10Y yield data available. Please ensure US10Y.csv is downloaded."
+        LOG.error(error_msg)
+        raise ValueError(error_msg)
+        
+    try:
+        end_date = pd.to_datetime(current_date)
+        start_date = end_date - pd.DateOffset(years=years)
+        
+        period_data = market_data['US10Y'].loc[start_date:end_date]
+        if period_data.empty:
+            error_msg = f"No yield data in {years}-year period. Data range: {market_data['US10Y'].index.min()} to {market_data['US10Y'].index.max()}"
+            LOG.error(error_msg)
+            raise ValueError(error_msg)
+            
+        current_yield = period_data['close'].iloc[-1]
+        percentile = (period_data['close'] <= current_yield).mean()
+        
+        return min(max(percentile, 0.1), 0.9)
+        
+    except Exception as e:
+        LOG.error(f"Error calculating yield percentile: {e}")
+        raise
+
+def get_current_yield(market_data, current_date):
+    """
+    Get current US 10Y Treasury yield for cash allocation decisions.
+    """
+    if market_data['US10Y'].empty:
+        LOG.warning("No US 10Y yield data available, using default 4.0%")
+        return 4.0
+        
+    try:
+        recent_data = market_data['US10Y'].loc[:pd.to_datetime(current_date)]
+        if recent_data.empty:
+            LOG.warning("No recent yield data available, using default 4.0%")
+            return 4.0
+        return recent_data['close'].iloc[-1]
+    except Exception as e:
+        LOG.warning(f"Error getting current yield, using default 4.0%: {e}")
+        return 4.0

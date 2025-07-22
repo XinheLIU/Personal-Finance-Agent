@@ -1,0 +1,26 @@
+[Cursor] Release v0.1.0 - Major Refactoring and Modular Architecture
+
+### Added
+- Project Structure: Introduced `src` and `tests` directories for better organization
+- Unit Tests: Added testing framework with initial tests for strategy utilities
+- Configuration: Centralized all configuration into `src/config.py`
+- Modularity: Created dedicated modules:
+  - `data_loader.py` for data loading and preprocessing
+  - `backtest_runner.py` for backtest execution
+  - `reporting.py` for performance analysis and visualization
+  - `strategy_utils.py` for reusable strategy calculations
+  - `app_logger.py` for professional logging with loguru
+
+### Changed
+- Refactored `main.py`: Simplified to high-level orchestrator
+- Refactored `strategy.py`: Moved complex logic to `strategy_utils.py`
+- Improved Error Handling: Implemented fail-fast mechanism for missing data
+- Code Quality: Replaced hardcoded values with centralized configuration
+- Updated Documentation: Completely rewrote README.md for better user experience
+
+### Technical Improvements
+- Smart data management with date-range naming and caching
+- Enhanced logging with loguru for debugging and monitoring
+- Comprehensive error handling with actionable error messages
+- Modular architecture for easy testing and maintenance
+- Professional visualization with seaborn integration 

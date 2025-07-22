@@ -3,7 +3,10 @@ import pandas as pd
 import numpy as np
 import os
 import akshare as ak
-from logger import LOG
+from src.app_logger import LOG
+from src.config import DYNAMIC_STRATEGY_PARAMS
+from src.data_loader import load_market_data, load_pe_data
+from src.strategy_utils import calculate_pe_percentile, calculate_yield_percentile, get_current_yield
 
 class DynamicAllocationStrategy(bt.Strategy):
     """
@@ -26,15 +29,15 @@ class DynamicAllocationStrategy(bt.Strategy):
     """
     
     params = (
-        ('rebalance_days', 30),  # Rebalance every 30 days
-        ('threshold', 0.01),     # 1% threshold for rebalancing
+        ('rebalance_days', DYNAMIC_STRATEGY_PARAMS['rebalance_days']),  # Rebalance every 30 days
+        ('threshold', DYNAMIC_STRATEGY_PARAMS['threshold']),     # 1% threshold for rebalancing
     )
     
     def __init__(self):
         """Initialize the dynamic allocation strategy with data loading and setup"""
         # Load historical market data for PE and yield calculations
-        self.load_market_data()
-        self.load_pe_data()
+        self.market_data = load_market_data()
+        self.pe_cache = load_pe_data()
         
         # Rebalancing control variables
         self.last_rebalance = 0
@@ -57,299 +60,9 @@ class DynamicAllocationStrategy(bt.Strategy):
             'CASH': self.datas[7] if len(self.datas) > 7 else None,        # Money market/cash
         }
         
-    def load_market_data(self):
-        """
-        Load historical price data for all assets from CSV files.
-        
-        This method loads the price data needed for:
-        - PE ratio calculations (using price data as fallback)
-        - US 10Y Treasury yield data for bond allocation decisions
-        - Market data validation and analysis
-        """
-        try:
-            # Load CSI300 data (Chinese large-cap index)
-            csi300_files = [f for f in os.listdir('data') if f.startswith('CSI300_price_') and f.endswith('.csv')]
-            if csi300_files:
-                csi300_file = sorted(csi300_files)[-1]
-                self.csi300_data = pd.read_csv(f'data/{csi300_file}')
-                if '日期' in self.csi300_data.columns:
-                    self.csi300_data['日期'] = pd.to_datetime(self.csi300_data['日期'])
-                    self.csi300_data.set_index('日期', inplace=True)
-                else:
-                    self.csi300_data['date'] = pd.to_datetime(self.csi300_data['date'])
-                    self.csi300_data.set_index('date', inplace=True)
-            
-            # Load CSI500 data (Chinese mid-cap index)
-            csi500_files = [f for f in os.listdir('data') if f.startswith('CSI500_price_') and f.endswith('.csv')]
-            if csi500_files:
-                csi500_file = sorted(csi500_files)[-1]
-                self.csi500_data = pd.read_csv(f'data/{csi500_file}')
-                if '日期' in self.csi500_data.columns:
-                    self.csi500_data['日期'] = pd.to_datetime(self.csi500_data['日期'])
-                    self.csi500_data.set_index('日期', inplace=True)
-                else:
-                    self.csi500_data['date'] = pd.to_datetime(self.csi500_data['date'])
-                    self.csi500_data.set_index('date', inplace=True)
-            
-            # Load HSTECH data (Hong Kong tech index)
-            hstech_files = [f for f in os.listdir('data') if f.startswith('HSTECH_price_') and f.endswith('.csv')]
-            if hstech_files:
-                hstech_file = sorted(hstech_files)[-1]
-                self.hstech_data = pd.read_csv(f'data/{hstech_file}')
-                if '日期' in self.hstech_data.columns:
-                    self.hstech_data['日期'] = pd.to_datetime(self.hstech_data['日期'])
-                    self.hstech_data.set_index('日期', inplace=True)
-                else:
-                    self.hstech_data['date'] = pd.to_datetime(self.hstech_data['date'])
-                    self.hstech_data.set_index('date', inplace=True)
-            
-            # Load US10Y data (US 10-year Treasury yield)
-            us10y_files = [f for f in os.listdir('data') if f.startswith('US10Y_price_') and f.endswith('.csv')]
-            if us10y_files:
-                us10y_file = sorted(us10y_files)[-1]
-                self.us10y_data = pd.read_csv(f'data/{us10y_file}')
-                self.us10y_data['date'] = pd.to_datetime(self.us10y_data['date'])
-                self.us10y_data.set_index('date', inplace=True)
-            
-            # Load SP500 data (US large-cap index)
-            sp500_files = [f for f in os.listdir('data') if f.startswith('SP500_price_') and f.endswith('.csv')]
-            if sp500_files:
-                sp500_file = sorted(sp500_files)[-1]
-                self.sp500_data = pd.read_csv(f'data/{sp500_file}')
-                self.sp500_data['date'] = pd.to_datetime(self.sp500_data['date'])
-                self.sp500_data.set_index('date', inplace=True)
-            
-            # Load NASDAQ100 data (US tech index)
-            nasdaq_files = [f for f in os.listdir('data') if f.startswith('NASDAQ100_price_') and f.endswith('.csv')]
-            if nasdaq_files:
-                nasdaq_file = sorted(nasdaq_files)[-1]
-                self.nasdaq_data = pd.read_csv(f'data/{nasdaq_file}')
-                self.nasdaq_data['date'] = pd.to_datetime(self.nasdaq_data['date'])
-                self.nasdaq_data.set_index('date', inplace=True)
-            
-            LOG.info("Market data loaded successfully")
-            
-        except Exception as e:
-            LOG.error(f"Error loading market data: {e}")
-            # Initialize empty dataframes as fallback
-            self.csi300_data = pd.DataFrame()
-            self.csi500_data = pd.DataFrame()
-            self.hstech_data = pd.DataFrame()
-            self.us10y_data = pd.DataFrame()
-            self.sp500_data = pd.DataFrame()
-            self.nasdaq_data = pd.DataFrame()
     
-    def load_pe_data(self):
-        """
-        Load PE (Price-to-Earnings) ratio data from CSV files.
-        
-        PE ratios are crucial for the strategy as they determine:
-        - How expensive/cheap each asset is relative to historical levels
-        - Target allocation weights (lower PE percentiles = higher allocations)
-        - Market timing decisions for rebalancing
-        """
-        self.pe_cache = {}
-        LOG.info("Loading PE ratio data from files...")
-        
-        # PE data file mapping with new naming convention
-        pe_assets = ['CSI300', 'CSI500', 'HSTECH', 'SP500', 'NASDAQ100']
-        
-        for asset in pe_assets:
-            try:
-                # Look for PE files with the new naming convention
-                pe_files = [f for f in os.listdir('data') if f.startswith(f'{asset}_pe_') and f.endswith('.csv')]
-                
-                if pe_files:
-                    pe_file = sorted(pe_files)[-1]  # Use the most recent file
-                    pe_df = pd.read_csv(f'data/{pe_file}')
-                    
-                    # Standardize date column and ensure timezone-naive
-                    if 'date' in pe_df.columns:
-                        pe_df['date'] = pd.to_datetime(pe_df['date'], utc=True).dt.tz_localize(None)
-                        pe_df.set_index('date', inplace=True)
-                    elif '日期' in pe_df.columns:
-                        pe_df['日期'] = pd.to_datetime(pe_df['日期'])
-                        pe_df.set_index('日期', inplace=True)
-                    
-                    # Store in cache
-                    self.pe_cache[asset] = pe_df
-                    LOG.info(f"Loaded {asset} PE data: {len(pe_df)} records")
-                else:
-                    LOG.warning(f"PE data file not found for {asset}")
-                    self.pe_cache[asset] = pd.DataFrame()
-                    
-            except Exception as e:
-                LOG.error(f"Error loading PE data for {asset}: {e}")
-                self.pe_cache[asset] = pd.DataFrame()
-        
-        loaded_assets = [k for k, v in self.pe_cache.items() if not v.empty]
-        LOG.info(f"PE data loading complete. Loaded data for: {loaded_assets}")
     
-    def calculate_pe_percentile(self, asset_name, current_date, years=10):
-        """
-        Calculate PE percentile for a given asset over a specified time period.
-        
-        The PE percentile indicates how expensive an asset is relative to its historical levels:
-        - 90th percentile = Very expensive (only 10% of historical periods were more expensive)
-        - 50th percentile = Average valuation
-        - 10th percentile = Very cheap (only 10% of historical periods were cheaper)
-        
-        Args:
-            asset_name (str): Name of the asset (e.g., 'CSI300', 'SP500')
-            current_date: Current date for the calculation
-            years (int): Number of years to look back for historical PE data
-            
-        Returns:
-            float: PE percentile between 0.1 and 0.9 (10% to 90%)
-        """
-        if asset_name not in self.pe_cache or self.pe_cache[asset_name].empty:
-            error_msg = f"No PE data available for {asset_name}. Please ensure PE data is downloaded using data_download.py"
-            LOG.error(error_msg)
-            raise ValueError(error_msg)
-            
-        try:
-            pe_data = self.pe_cache[asset_name]
-            end_date = pd.to_datetime(current_date)
-            
-            # Ensure timezone-naive datetime for comparison
-            if end_date.tz is not None:
-                end_date = end_date.tz_localize(None)
-            
-            start_date = end_date - pd.DateOffset(years=years)
-            
-            # Ensure PE data index is also timezone-naive
-            if hasattr(pe_data.index, 'tz') and pe_data.index.tz is not None:
-                pe_data = pe_data.copy()
-                pe_data.index = pe_data.index.tz_localize(None)
-            
-            # Filter PE data for the specified period
-            period_pe_data = pe_data.loc[start_date:end_date]
-            if period_pe_data.empty:
-                error_msg = f"No PE data in {years}-year period for {asset_name}. Data range: {pe_data.index.min()} to {pe_data.index.max()}"
-                LOG.error(error_msg)
-                raise ValueError(error_msg)
-            
-            # Get PE column - prioritize actual PE ratios over estimates
-            if 'pe_ratio' in period_pe_data.columns:
-                pe_col = 'pe_ratio'
-                pe_type = 'PE'
-            elif 'avg_pe' in period_pe_data.columns:
-                pe_col = 'avg_pe'
-                pe_type = 'Avg PE'
-            elif 'median_pe' in period_pe_data.columns:
-                pe_col = 'median_pe'
-                pe_type = 'Median PE'
-            elif 'equal_weight_pe' in period_pe_data.columns:
-                pe_col = 'equal_weight_pe'
-                pe_type = 'Equal Weight PE'
-            elif 'pe' in period_pe_data.columns:
-                pe_col = 'pe'
-                pe_type = 'PE'
-            elif 'estimated_pe' in period_pe_data.columns:
-                pe_col = 'estimated_pe'
-                pe_type = 'Est. PE'
-            else:
-                # Fallback to first numeric column
-                numeric_cols = period_pe_data.select_dtypes(include=[np.number]).columns
-                if len(numeric_cols) > 0:
-                    pe_col = numeric_cols[0]
-                    pe_type = 'PE'
-                else:
-                    error_msg = f"No numeric PE column found for {asset_name}. Available columns: {list(period_pe_data.columns)}"
-                    LOG.error(error_msg)
-                    raise ValueError(error_msg)
-            
-            # Remove invalid PE values (negative, zero, or extremely high)
-            valid_pe_data = period_pe_data[pe_col].dropna()
-            valid_pe_data = valid_pe_data[(valid_pe_data > 0) & (valid_pe_data < 200)]
-            
-            if valid_pe_data.empty:
-                error_msg = f"No valid {pe_type} data for {asset_name} in the specified period"
-                LOG.error(error_msg)
-                raise ValueError(error_msg)
-                
-            # Get current PE (most recent valid value)
-            current_pe = valid_pe_data.iloc[-1]
-            
-            # Calculate percentile (what % of historical PEs are below current PE)
-            percentile = (valid_pe_data <= current_pe).mean()
-            
-            # Clamp between 10% and 90% for safety
-            percentile = min(max(percentile, 0.1), 0.9)
-            
-            LOG.info(f"{asset_name} - Current {pe_type}: {current_pe:.2f}, Percentile: {percentile:.2%}")
-            return percentile
-            
-        except Exception as e:
-            LOG.error(f"Error calculating PE percentile for {asset_name}: {e}")
-            raise
     
-    def calculate_yield_percentile(self, current_date, years=20):
-        """
-        Calculate US 10Y Treasury yield percentile over a specified time period.
-        
-        The yield percentile is used to determine bond allocation:
-        - Higher yield percentiles = Higher bond allocations (bonds more attractive)
-        - Lower yield percentiles = Lower bond allocations (bonds less attractive)
-        
-        Args:
-            current_date: Current date for the calculation
-            years (int): Number of years to look back for historical yield data
-            
-        Returns:
-            float: Yield percentile between 0.1 and 0.9 (10% to 90%)
-        """
-        if self.us10y_data.empty:
-            error_msg = "No US 10Y yield data available. Please ensure US10Y.csv is downloaded."
-            LOG.error(error_msg)
-            raise ValueError(error_msg)
-            
-        try:
-            end_date = pd.to_datetime(current_date)
-            start_date = end_date - pd.DateOffset(years=years)
-            
-            period_data = self.us10y_data.loc[start_date:end_date]
-            if period_data.empty:
-                error_msg = f"No yield data in {years}-year period. Data range: {self.us10y_data.index.min()} to {self.us10y_data.index.max()}"
-                LOG.error(error_msg)
-                raise ValueError(error_msg)
-                
-            current_yield = period_data['close'].iloc[-1]
-            percentile = (period_data['close'] <= current_yield).mean()
-            
-            return min(max(percentile, 0.1), 0.9)
-            
-        except Exception as e:
-            LOG.error(f"Error calculating yield percentile: {e}")
-            raise
-    
-    def get_current_yield(self, current_date):
-        """
-        Get current US 10Y Treasury yield for cash allocation decisions.
-        
-        When yield >= 4%, the strategy allocates to cash/money market instruments.
-        This provides a yield-seeking component to the portfolio.
-        
-        Args:
-            current_date: Current date to get yield for
-            
-        Returns:
-            float: Current US 10Y yield percentage
-        """
-        if self.us10y_data.empty:
-            LOG.warning("No US 10Y yield data available, using default 4.0%")
-            return 4.0  # Default
-            
-        try:
-            # Get the most recent yield data
-            recent_data = self.us10y_data.loc[:pd.to_datetime(current_date)]
-            if recent_data.empty:
-                LOG.warning("No recent yield data available, using default 4.0%")
-                return 4.0
-            return recent_data['close'].iloc[-1]
-        except Exception as e:
-            LOG.warning(f"Error getting current yield, using default 4.0%: {e}")
-            return 4.0
     
     def calculate_target_weights(self, current_date):
         """
@@ -374,17 +87,17 @@ class DynamicAllocationStrategy(bt.Strategy):
         
         try:
             # Get PE percentiles for A-shares (10 years of history)
-            csi300_pe_pct = self.calculate_pe_percentile('CSI300', current_date, 10)
-            csi500_pe_pct = self.calculate_pe_percentile('CSI500', current_date, 10)
-            hstech_pe_pct = self.calculate_pe_percentile('HSTECH', current_date, 10)
+            csi300_pe_pct = calculate_pe_percentile('CSI300', self.pe_cache, current_date, 10)
+            csi500_pe_pct = calculate_pe_percentile('CSI500', self.pe_cache, current_date, 10)
+            hstech_pe_pct = calculate_pe_percentile('HSTECH', self.pe_cache, current_date, 10)
             
             # Get PE percentiles for US stocks (20 years of history)
-            sp500_pe_pct = self.calculate_pe_percentile('SP500', current_date, 20)
-            nasdaq_pe_pct = self.calculate_pe_percentile('NASDAQ100', current_date, 20)
+            sp500_pe_pct = calculate_pe_percentile('SP500', self.pe_cache, current_date, 20)
+            nasdaq_pe_pct = calculate_pe_percentile('NASDAQ100', self.pe_cache, current_date, 20)
             
             # Get yield percentile and current yield
-            yield_pct = self.calculate_yield_percentile(current_date, 20)
-            current_yield = self.get_current_yield(current_date)
+            yield_pct = calculate_yield_percentile(self.market_data, current_date, 20)
+            current_yield = get_current_yield(self.market_data, current_date)
             
             # A股配置 (Chinese stocks) - 20% base allocation each
             weights['CSI300'] = 0.20 * (1 - csi300_pe_pct)  # Cheaper = higher allocation
