@@ -47,6 +47,6 @@ COMMISSION = 0.001
 
 # Parameters for the DynamicAllocationStrategy
 DYNAMIC_STRATEGY_PARAMS = {
-    'rebalance_days': 30,
-    'threshold': 0.01,
+    'rebalance_days': 360,
+    'threshold': 0.05,
 }

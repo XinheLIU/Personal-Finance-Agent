@@ -43,6 +43,7 @@ class DynamicAllocationStrategy(bt.Strategy):
         self.last_rebalance = 0
         self.target_weights = {}
         self.current_weights = {}
+        self.rebalance_log = []
         
         # Portfolio value tracking for visualization and performance analysis
         self.portfolio_values = []
@@ -60,10 +61,6 @@ class DynamicAllocationStrategy(bt.Strategy):
             'CASH': self.datas[7] if len(self.datas) > 7 else None,        # Money market/cash
         }
         
-    
-    
-    
-    
     def calculate_target_weights(self, current_date):
         """
         Calculate target allocation weights based on current market conditions.
@@ -84,31 +81,32 @@ class DynamicAllocationStrategy(bt.Strategy):
             dict: Target weights for each asset
         """
         weights = {}
+        pe_percentiles = {}
         
         try:
             # Get PE percentiles for A-shares (10 years of history)
-            csi300_pe_pct = calculate_pe_percentile('CSI300', self.pe_cache, current_date, 10)
-            csi500_pe_pct = calculate_pe_percentile('CSI500', self.pe_cache, current_date, 10)
-            hstech_pe_pct = calculate_pe_percentile('HSTECH', self.pe_cache, current_date, 10)
+            pe_percentiles['CSI300'] = calculate_pe_percentile('CSI300', self.pe_cache, current_date, 10)
+            pe_percentiles['CSI500'] = calculate_pe_percentile('CSI500', self.pe_cache, current_date, 10)
+            pe_percentiles['HSTECH'] = calculate_pe_percentile('HSTECH', self.pe_cache, current_date, 10)
             
             # Get PE percentiles for US stocks (20 years of history)
-            sp500_pe_pct = calculate_pe_percentile('SP500', self.pe_cache, current_date, 20)
-            nasdaq_pe_pct = calculate_pe_percentile('NASDAQ100', self.pe_cache, current_date, 20)
+            pe_percentiles['SP500'] = calculate_pe_percentile('SP500', self.pe_cache, current_date, 20)
+            pe_percentiles['NASDAQ100'] = calculate_pe_percentile('NASDAQ100', self.pe_cache, current_date, 20)
             
             # Get yield percentile and current yield
             yield_pct = calculate_yield_percentile(self.market_data, current_date, 20)
             current_yield = get_current_yield(self.market_data, current_date)
             
             # A股配置 (Chinese stocks) - 20% base allocation each
-            weights['CSI300'] = 0.20 * (1 - csi300_pe_pct)  # Cheaper = higher allocation
-            weights['CSI500'] = 0.20 * (1 - csi500_pe_pct)  # Cheaper = higher allocation
+            weights['CSI300'] = 0.20 * (1 - pe_percentiles['CSI300'])  # Cheaper = higher allocation
+            weights['CSI500'] = 0.20 * (1 - pe_percentiles['CSI500'])  # Cheaper = higher allocation
             
             # 港股配置 (Hong Kong stocks) - 10% base allocation
-            weights['HSTECH'] = 0.10 * (1 - hstech_pe_pct)  # Cheaper = higher allocation
+            weights['HSTECH'] = 0.10 * (1 - pe_percentiles['HSTECH'])  # Cheaper = higher allocation
             
             # 美股配置 (US stocks) - 15% base allocation each
-            weights['SP500'] = 0.15 * (1 - sp500_pe_pct)    # Cheaper = higher allocation
-            weights['NASDAQ100'] = 0.15 * (1 - nasdaq_pe_pct)  # Cheaper = higher allocation
+            weights['SP500'] = 0.15 * (1 - pe_percentiles['SP500'])    # Cheaper = higher allocation
+            weights['NASDAQ100'] = 0.15 * (1 - pe_percentiles['NASDAQ100'])  # Cheaper = higher allocation
             
             # 个股配置 (Individual stocks) - skip for now
             individual_stocks = 0.03
@@ -141,12 +139,12 @@ class DynamicAllocationStrategy(bt.Strategy):
             
             # Add debug info
             LOG.info(f"Date: {current_date}")
-            LOG.info(f"PE Percentiles - CSI300: {csi300_pe_pct:.2%}, CSI500: {csi500_pe_pct:.2%}, HSTECH: {hstech_pe_pct:.2%}")
-            LOG.info(f"PE Percentiles - SP500: {sp500_pe_pct:.2%}, NASDAQ: {nasdaq_pe_pct:.2%}")
+            LOG.info(f"PE Percentiles - CSI300: {pe_percentiles['CSI300']:.2%}, CSI500: {pe_percentiles['CSI500']:.2%}, HSTECH: {pe_percentiles['HSTECH']:.2%}")
+            LOG.info(f"PE Percentiles - SP500: {pe_percentiles['SP500']:.2%}, NASDAQ: {pe_percentiles['NASDAQ100']:.2%}")
             LOG.info(f"Yield: {current_yield:.2f}%, Percentile: {yield_pct:.2%}")
             LOG.info(f"Target weights: {weights}")
             
-            return weights
+            return weights, pe_percentiles, current_yield, yield_pct
             
         except Exception as e:
             LOG.error(f"Error calculating target weights: {e}")
@@ -200,7 +198,7 @@ class DynamicAllocationStrategy(bt.Strategy):
                 return True
         return False
     
-    def rebalance_portfolio(self, target_weights):
+    def rebalance_portfolio(self, target_weights, pe_percentiles, current_yield, yield_pct):
         """
         Rebalance portfolio to match target weights.
         
@@ -217,6 +215,7 @@ class DynamicAllocationStrategy(bt.Strategy):
         
         LOG.info(f"Rebalancing portfolio with total value: {total_value:.2f}")
         
+        transactions = []
         for asset, target_weight in target_weights.items():
             data_feed = self.data_feeds.get(asset)
             if data_feed is None:
@@ -228,8 +227,9 @@ class DynamicAllocationStrategy(bt.Strategy):
             
             if target_value == 0 and current_position.size > 0:
                 # Close position if target weight is 0
-                self.close(data_feed)
+                order = self.close(data_feed)
                 LOG.info(f"Closing {asset} position")
+                transactions.append(f"Close {asset}")
             elif target_value > 0:
                 # Calculate target shares and required trades
                 target_shares = int(target_value / data_feed.close[0])
@@ -240,11 +240,28 @@ class DynamicAllocationStrategy(bt.Strategy):
                         # Buy shares to increase position
                         self.buy(data=data_feed, size=shares_to_trade)
                         LOG.info(f"Buying {shares_to_trade} shares of {asset}")
+                        transactions.append(f"Buy {shares_to_trade} of {asset}")
                     else:
                         # Sell shares to decrease position
                         self.sell(data=data_feed, size=abs(shares_to_trade))
                         LOG.info(f"Selling {abs(shares_to_trade)} shares of {asset}")
-    
+                        transactions.append(f"Sell {abs(shares_to_trade)} of {asset}")
+
+        rebalance_details = {
+            'date': self.datas[0].datetime.date(0),
+            'total_portfolio_value': total_value,
+            'transactions': ", ".join(transactions),
+        }
+
+        for asset, weight in target_weights.items():
+            rebalance_details[f'{asset}_target_weight'] = weight
+            rebalance_details[f'{asset}_price'] = self.data_feeds[asset].close[0]
+            rebalance_details[f'{asset}_pe_percentile'] = pe_percentiles.get(asset)
+        
+        rebalance_details['US_10Y_yield'] = current_yield
+        rebalance_details['US_10Y_yield_percentile'] = yield_pct
+        self.rebalance_log.append(rebalance_details)
+
     def next(self):
         """
         Main strategy logic executed on each trading day.
@@ -268,12 +285,12 @@ class DynamicAllocationStrategy(bt.Strategy):
             
             try:
                 # Calculate target weights based on current market conditions
-                target_weights = self.calculate_target_weights(current_date)
+                target_weights, pe_percentiles, current_yield, yield_pct = self.calculate_target_weights(current_date)
                 current_weights = self.get_current_weights()
                 
                 # Check if rebalancing is needed (any weight deviation > 1%)
                 if self.need_rebalancing(target_weights, current_weights) or len(self) == 1:
-                    self.rebalance_portfolio(target_weights)
+                    self.rebalance_portfolio(target_weights, pe_percentiles, current_yield, yield_pct)
                     self.last_rebalance = len(self)
                     self.target_weights = target_weights.copy()
                     self.current_weights = current_weights.copy()

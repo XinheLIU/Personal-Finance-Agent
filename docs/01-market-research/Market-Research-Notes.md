@@ -1,9 +1,5 @@
 # Market Analysis: AI-Powered Personal Finance Agent
 
-This document provides a consolidated analysis of the market for an AI-powered personal finance agent, covering the competitive landscape, market size, and target users.
-
----
-
 ## 1. Competitive Landscape
 
 The market is composed of established robo-advisors, popular budgeting apps, and emerging AI-native platforms. A comprehensive AI agent competes with different facets of this landscape.
@@ -19,9 +15,6 @@ The market is composed of established robo-advisors, popular budgeting apps, and
 | **Magnifi** | AI-Powered Investment Search | Natural-language search for investment opportunities (funds, ETFs), tailored suggestions. | Limited scope outside of investment search; less comprehensive budgeting features. |
 | **Copilot** | AI-Powered Budgeting & Tracking (Apple) | AI-powered transaction categorization, dynamic budget adjustments, investment tracking. | Exclusive to Apple users, requires a premium subscription for full features. |
 | **Ant Group (Zhixiaobao 2.0)** | Financial LLM (China) | High accuracy in financial intention recognition, trained on vast datasets for financial education. | Subject to Chinese regulations, less focus on individual investment strategy. |
-| **DeepSeek (Zheshang Fund)** | Foundational LLM (China) | Low-cost, boosts efficiency for fund managers, used as a backend tool for research. | Not a direct consumer-facing application; requires integration by other firms. |
-
----
 
 ## 2. Market Size & Trends
 
@@ -78,6 +71,15 @@ A detailed user persona helps define the target audience and tailor product feat
   - **Natural Language Interaction**: The ability to ask questions and get clear answers without navigating complex menus.
 
 ### Secondary Personas
+
 - **The Freelancer / Small Business Owner**: Needs help managing irregular income, separating business/personal expenses, and planning for taxes.
 - **The DIY Investor**: Wants sophisticated tools for portfolio analysis, strategy backtesting, and risk assessment in a single platform.
 - **The Financial Novice**: Seeks a simple, guided introduction to budgeting, saving, and investing with clear, educational steps.
+
+## Reference
+
+- [mita](https://metaso.cn/s/jZmKdB8)
+- [Gemini](https://g.co/gemini/share/cbf9b9fac391)
+- [GPT](https://chatgpt.com/share/68818ed7-e5a4-8005-b90e-2ce5961a651b)
+- [Perplexity](https://g.co/gemini/share/cbf9b9fac391)
+- [doubao](https://www.doubao.com/thread/w0d7e1321d6b767cc)

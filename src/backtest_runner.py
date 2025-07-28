@@ -5,6 +5,7 @@ import pandas as pd
 from src.reporting import create_performance_summary_table, plot_portfolio_performance
 from src.config import DATA_FILES, INITIAL_CAPITAL, COMMISSION
 from src.data_loader import load_data_feed
+from src.analytics import log_rebalance_details
 
 def _setup_cerebro(strategy_class):
     """Creates and configures a backtrader Cerebro engine."""
@@ -71,6 +72,10 @@ def _run_and_analyze(cerebro, strategy_name):
 
         if portfolio_values and portfolio_dates:
             plot_portfolio_performance(strategy_name, portfolio_values, portfolio_dates, INITIAL_CAPITAL)
+
+        # Log rebalance details
+        if hasattr(strat, 'rebalance_log'):
+            log_rebalance_details(strategy_name, strat.rebalance_log)
 
         return {
             'final_value': final_value,

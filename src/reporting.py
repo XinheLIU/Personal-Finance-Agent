@@ -1,6 +1,7 @@
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
+import os
 from src.app_logger import LOG
 
 def create_performance_summary_table(results, strategy_name, initial_capital):
@@ -65,9 +66,12 @@ def create_performance_summary_table(results, strategy_name, initial_capital):
     summary_df = pd.DataFrame(summary_data)
     
     # Save to CSV
+    output_dir = "analytics"
+    os.makedirs(output_dir, exist_ok=True)
     filename = f'{strategy_name.lower().replace(" ", "_")}_performance_summary.csv'
-    summary_df.to_csv(filename, index=False)
-    LOG.info(f'Performance summary saved to {filename}')
+    filepath = os.path.join(output_dir, filename)
+    summary_df.to_csv(filepath, index=False)
+    LOG.info(f'Performance summary saved to {filepath}')
     
     # Print formatted table to console
     LOG.info(f'\n{"="*60}')
@@ -123,8 +127,11 @@ def plot_portfolio_performance(strategy_name, portfolio_values, dates, initial_c
     
     # Adjust layout and save
     plt.tight_layout()
+    output_dir = "analytics"
+    os.makedirs(output_dir, exist_ok=True)
     filename = f'{strategy_name.lower().replace(" ", "_")}_portfolio_performance.png'
-    plt.savefig(filename, dpi=300, bbox_inches='tight')
+    filepath = os.path.join(output_dir, filename)
+    plt.savefig(filepath, dpi=300, bbox_inches='tight')
     plt.close()
     
-    LOG.info(f'Portfolio performance chart saved to {filename}')
+    LOG.info(f'Portfolio performance chart saved to {filepath}')

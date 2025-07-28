@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2025-07-28
+
+### Added
+
+- **Analytics Module:** Introduced a new `src/analytics.py` module to generate detailed CSV reports for debugging and analysis.
+- **Rebalancing Log:** The backtesting engine now produces a detailed rebalancing log in CSV format, stored in the new `/analytics` directory.
+
+### Changed
+
+- **Data Storage:** Restructured the `/data` directory to segregate price, PE, and yield data into separate subdirectories for improved scalability.
+- **File Naming:** Updated the data file naming convention to a more standardized format: `ASSET_YYYYMMDD_to_YYYYMMDD.csv`.
+- **Reporting Output:** All generated reports and charts are now saved to the `/analytics` directory.
+- **Improved Debugging:** The new rebalancing log provides a detailed, step-by-step view of the strategy's execution, making it easier to debug and adjust.
+
 ## [0.1.0] - 2025-07-22
 
 ### Added

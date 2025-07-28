@@ -19,7 +19,10 @@ The goal is to help you maintain a big picture as well as the progress of the ta
 
 - You have a conda env called 'py-fin' virural environment. Use it. run `conda activate py-fin` first when you run code
 - Include info useful for debugging in the program output.
-- Read the file before you try to edit it.
+- Read the file before you try to edit it. record your understanding of this repo in GEMINI.md.
+- Use GEMINI.md as a draft box to complete your task.
+- execute step by step, using GEMINI.md as a draft.
+
 
 ## GEMINI learned
 
