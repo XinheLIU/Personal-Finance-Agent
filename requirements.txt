@@ -5,3 +5,5 @@ pandas
 loguru
 yfinance
 seaborn
+requests
+python-dotenv
