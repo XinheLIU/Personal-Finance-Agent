@@ -60,9 +60,11 @@ def load_data_feed(asset_name, name):
 
 def load_market_data():
     """
-    Load historical price data for all assets from CSV files.
+    Load historical price data for all assets from CSV files and yield data.
     """
     market_data = {}
+    
+    # Load price data for regular assets
     data_dir = os.path.join('data', 'price')
     for asset_name in ASSETS.keys():
         try:
@@ -83,6 +85,20 @@ def load_market_data():
         except Exception as e:
             LOG.error(f"Error loading market data for {asset_name}: {e}")
             market_data[asset_name] = pd.DataFrame()
+    
+    # Load yield data (US10Y)
+    try:
+        yield_data = load_yield_data()
+        if not yield_data.empty:
+            market_data['US10Y'] = yield_data
+            LOG.info("US10Y yield data added to market data")
+        else:
+            LOG.warning("US10Y yield data is empty, using empty DataFrame")
+            market_data['US10Y'] = pd.DataFrame()
+    except Exception as e:
+        LOG.error(f"Error loading US10Y yield data: {e}")
+        market_data['US10Y'] = pd.DataFrame()
+    
     LOG.info("Market data loaded successfully")
     return market_data
 

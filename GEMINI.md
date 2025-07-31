@@ -26,6 +26,8 @@ The goal is to help you maintain a big picture as well as the progress of the ta
 
 ## GEMINI learned
 
+### principles
+
 - For search results, ensure proper handling of different character encodings (UTF-8) for international queries
 - Add debug information to stderr while keeping the main output clean in stdout for better pipeline integration
 - When using seaborn styles in matplotlib, use 'seaborn-v0_8' instead of 'seaborn' as the style name due to recent seaborn version changes
@@ -42,6 +44,9 @@ The goal is to help you maintain a big picture as well as the progress of the ta
 - **Fallback data sources** increase reliability when primary sources are unavailable
 - **Handle multiple data formats** (Chinese vs US) in the same system for international markets
 - **Clean yfinance data** by removing empty rows and ticker symbols that can cause parsing errors
+
+### Project info
+
 
 # Scratchpad
 

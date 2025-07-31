@@ -149,7 +149,45 @@ class DynamicAllocationStrategy(bt.Strategy):
         except Exception as e:
             LOG.error(f"Error calculating target weights: {e}")
             raise
-    
+
+    def get_target_weights_and_metrics(self):
+        """
+        Calculates and returns the latest target weights and the metrics used
+        for their calculation. This method is designed to be called from outside
+        the backtrader engine, for purposes like the GUI monitoring tab.
+        """
+        try:
+            # Use the latest date where all data is available
+            latest_pe_dates = [df.index.max() for df in self.pe_cache.values() if not df.empty]
+            if not latest_pe_dates:
+                raise ValueError("No PE data available in cache.")
+            
+            latest_pe_date = min(latest_pe_dates)
+            latest_yield_date = self.market_data['US10Y'].index.max()
+            current_date = min(latest_pe_date, latest_yield_date).to_pydatetime().date()
+
+            weights, pe_percentiles, current_yield, yield_pct = self.calculate_target_weights(current_date)
+
+            # Combine all info into a readable format
+            reasoning = {}
+            for asset in weights:
+                if asset == 'TLT':
+                    reasoning[asset] = f"Yield: {current_yield:.2f}%, Yield %ile: {yield_pct:.1%}"
+                elif asset in pe_percentiles:
+                    reasoning[asset] = f"PE %ile: {pe_percentiles.get(asset, 'N/A'):.1%}"
+                elif asset == 'GLD':
+                    reasoning[asset] = "Fixed Allocation"
+                elif asset == 'CASH':
+                    reasoning[asset] = f"US 10Y Yield >= 4.0%"
+                else:
+                    reasoning[asset] = "N/A"
+
+            return weights, reasoning
+
+        except Exception as e:
+            LOG.error(f"Error getting target weights and metrics: {e}")
+            return {}, {}
+
     def get_current_weights(self):
         """
         Calculate current portfolio weights based on actual positions.

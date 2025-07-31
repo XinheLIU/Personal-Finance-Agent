@@ -98,8 +98,8 @@ def calculate_yield_percentile(market_data, current_date, years=20):
             LOG.error(error_msg)
             raise ValueError(error_msg)
             
-        current_yield = period_data['close'].iloc[-1]
-        percentile = (period_data['close'] <= current_yield).mean()
+        current_yield = period_data['yield'].iloc[-1]
+        percentile = (period_data['yield'] <= current_yield).mean()
         
         return min(max(percentile, 0.1), 0.9)
         
@@ -120,7 +120,7 @@ def get_current_yield(market_data, current_date):
         if recent_data.empty:
             LOG.warning("No recent yield data available, using default 4.0%")
             return 4.0
-        return recent_data['close'].iloc[-1]
+        return recent_data['yield'].iloc[-1]
     except Exception as e:
         LOG.warning(f"Error getting current yield, using default 4.0%: {e}")
         return 4.0
