@@ -2,7 +2,8 @@
 import gradio as gr
 from src.config import DYNAMIC_STRATEGY_PARAMS, INITIAL_CAPITAL, COMMISSION
 from src.backtest_runner import run_backtest
-from src.strategy import DynamicAllocationStrategy
+from src.strategy import DynamicAllocationStrategy, get_target_weights_and_metrics_standalone
+from src.cache import TARGET_WEIGHTS_CACHE
 import pandas as pd
 import json
 import os
@@ -24,32 +25,36 @@ def run_backtest_interface(rebalance_days, threshold, initial_capital, commissio
             "Value": [f"${results['final_value']:,.2f}", f"{results['total_return']:.2f}", f"{results['annualized_return']:.2f}", f"{results['max_drawdown']:.2f}", f"{results['sharpe_ratio']:.2f}"]
         })
         portfolio_df = pd.DataFrame({
-            "Date": results['portfolio_dates'],
-            "Value": results['portfolio_values']
+            "Date": pd.to_datetime(results['portfolio_dates']),
+            "Value": [round(v, 2) for v in results['portfolio_values']]
         })
-        return summary_df, gr.LinePlot(data=portfolio_df, x="Date", y="Value", title="Portfolio Performance")
+        return summary_df, portfolio_df
     else:
-        # Return proper DataFrame with error message instead of string
         error_df = pd.DataFrame({
             "Metric": ["Status"],
             "Value": ["Backtest failed. Check logs for details. Ensure data is downloaded by running: python -m src.data_download"]
         })
-        return error_df, None
+        return error_df, pd.DataFrame()
 
-def get_target_weights_and_comparison():
+def get_portfolio_and_comparison_data():
     """
-    Gradio interface for displaying target weights and comparison with current holdings.
+    Gradio interface for displaying target weights, current holdings, and comparison.
     """
     try:
-        strategy = DynamicAllocationStrategy()
-        target_weights, reasoning = strategy.get_target_weights_and_metrics()
+        target_weights = TARGET_WEIGHTS_CACHE.get('weights', {})
+        reasoning = TARGET_WEIGHTS_CACHE.get('reasoning', {})
         
         if not target_weights:
-            return pd.DataFrame({"Message": ["Could not retrieve target weights. Check logs for errors."]}), pd.DataFrame()
+            from src.main import pre_calculate_target_weights
+            pre_calculate_target_weights()
+            target_weights = TARGET_WEIGHTS_CACHE.get('weights', {})
+            reasoning = TARGET_WEIGHTS_CACHE.get('reasoning', {})
+
+        if not target_weights:
+            return pd.DataFrame({"Message": ["Target weights not available. Check logs."]}), pd.DataFrame()
 
         current_holdings = load_holdings()
         
-        # Create a DataFrame for comparison
         comparison_data = []
         all_assets = sorted(list(set(target_weights.keys()) | set(current_holdings.keys())))
         
@@ -66,11 +71,12 @@ def get_target_weights_and_comparison():
             })
             
         comparison_df = pd.DataFrame(comparison_data)
+        holdings_df = get_holdings_df()
         
-        return comparison_df
+        return comparison_df, holdings_df
 
     except Exception as e:
-        return pd.DataFrame({"Error": [f"An error occurred: {e}"]})
+        return pd.DataFrame({"Error": [f"An error occurred: {e}"]}), pd.DataFrame()
 
 def load_holdings():
     """
@@ -87,7 +93,6 @@ def save_holdings(holdings_df):
     """
     try:
         holdings_dict = holdings_df.set_index('Asset')['Weight'].to_dict()
-        # Convert weights from percentage strings to floats
         for asset, weight in holdings_dict.items():
             holdings_dict[asset] = float(weight.strip('%')) / 100
             
@@ -128,7 +133,7 @@ with gr.Blocks() as demo:
             with gr.Column():
                 gr.Markdown("## Backtest Results")
                 summary_table = gr.DataFrame(headers=["Metric", "Value"])
-                performance_plot = gr.Plot()
+                performance_plot = gr.LinePlot(x="Date", y="Value", title="Portfolio Performance")
 
         run_button.click(
             fn=run_backtest_interface,
@@ -136,21 +141,24 @@ with gr.Blocks() as demo:
             outputs=[summary_table, performance_plot]
         )
 
-    with gr.Tab("Monitoring"):
-        gr.Markdown("## Target vs. Current Weights")
-        comparison_table = gr.DataFrame()
-        refresh_button = gr.Button("Refresh")
-        refresh_button.click(
-            fn=get_target_weights_and_comparison,
-            inputs=[],
-            outputs=[comparison_table]
-        )
+    with gr.Tab("Portfolio"):
+        with gr.Row():
+            with gr.Column():
+                gr.Markdown("## Target vs. Current Weights")
+                comparison_table = gr.DataFrame()
+                refresh_button = gr.Button("Refresh")
 
-    with gr.Tab("My Holdings"):
-        gr.Markdown("## Edit Your Current Holdings")
-        holdings_df = gr.DataFrame(value=get_holdings_df(), headers=['Asset', 'Weight'], interactive=True)
-        save_button = gr.Button("Save Holdings")
-        save_status = gr.Textbox(label="Status")
+            with gr.Column():
+                gr.Markdown("## Edit Your Current Holdings")
+                holdings_df = gr.DataFrame(value=get_holdings_df(), headers=['Asset', 'Weight'], interactive=True)
+                save_button = gr.Button("Save Holdings")
+                save_status = gr.Textbox(label="Status", interactive=False)
+
+        refresh_button.click(
+            fn=get_portfolio_and_comparison_data,
+            inputs=[],
+            outputs=[comparison_table, holdings_df]
+        )
         
         save_button.click(
             fn=save_holdings,

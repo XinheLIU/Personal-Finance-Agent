@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2025-07-31
+
+### Added
+
+- **Gradio GUI:** Introduced a new graphical user interface built with Gradio, accessible by running `python -m src.main`.
+- **Backtesting Tab:** The GUI includes a tab for running backtests with tunable parameters for the dynamic allocation strategy.
+- **Portfolio Tab:** A consolidated tab to monitor target vs. current portfolio weights and edit current holdings.
+- **Holdings Management:** Added functionality to store and manage user's current portfolio holdings in `data/holdings.json`.
+- **On-Demand Calculation:** The application now pre-calculates and caches target weights on startup for immediate display in the GUI.
+
+### Changed
+
+- **Decoupled Logic:** Refactored the weight calculation logic out of the `backtrader` strategy to allow for standalone use in the GUI.
+- **Error Handling:** Improved error handling in the GUI to provide better feedback to the user.
+- **Dependencies:** Added `gradio` to `requirements.txt`.
+
 ## [0.2.0] - 2025-07-28
 
 ### Added
