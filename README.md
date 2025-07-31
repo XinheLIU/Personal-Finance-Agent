@@ -4,9 +4,11 @@ A modular backtesting framework for testing custom asset allocation strategies a
 
 ## What It Does
 
+- **Interactive GUI** with Gradio for easy backtesting and portfolio management
 - **Backtest portfolio strategies** with real historical data
 - **Smart data downloading** with automatic caching and fallbacks
 - **Professional analysis** with performance metrics and charts
+- **Detailed analytics** with CSV reports and rebalancing logs
 - **Easy customization** through modular architecture
 
 **Included Strategies:**
@@ -29,14 +31,22 @@ python -m src.data_download
 ```
 Downloads historical price and PE data for all assets with smart caching.
 
-### 3. Run Backtest
+### 3. Launch Application
 ```bash
 python -m src.main
 ```
+This launches the interactive GUI in your browser for easy backtesting and portfolio management.
+
+**Alternative - Command Line:**
+```bash
+# For command-line backtesting (legacy)
+python -m src.backtest_runner
+```
 
 ### 4. View Results
-- **Console**: Performance summary with key metrics
-- **Files**: CSV data and PNG charts in project directory
+- **GUI**: Interactive performance charts and portfolio comparison tables
+- **Analytics**: Detailed CSV reports and rebalancing logs in `analytics/` directory
+- **Console**: Performance summary with key metrics (command-line mode)
 - **Logs**: Detailed execution logs in `logs/app.log`
 
 ## File Structure
@@ -44,13 +54,16 @@ python -m src.main
 ```
 Personal-Finance-Agent/
 ├── src/                    # Core framework
-│   ├── main.py            # Run backtests
+│   ├── main.py            # Launch GUI application
+│   ├── gui.py             # Gradio web interface
 │   ├── strategy.py        # Strategy implementations
+│   ├── analytics.py       # CSV reports and analysis
 │   ├── config.py          # Configuration
 │   ├── data_download.py   # Smart data management
 │   └── ...               # Other modules
 ├── tests/                 # Unit tests
 ├── data/                  # Historical data (auto-generated)
+├── analytics/             # Generated reports and logs
 └── logs/                  # Execution logs
 ```
 
@@ -87,6 +100,21 @@ run_backtest(MyStrategy, "My Strategy")
 python -m pytest tests/ -v
 python -m src.main
 ```
+
+## GUI Features
+
+The Gradio web interface provides two main tabs:
+
+### **Backtest Tab**
+- **Interactive Parameters**: Adjust rebalancing frequency and threshold sliders
+- **Real-time Results**: View performance metrics and portfolio value charts
+- **Easy Testing**: No command-line knowledge required
+
+### **Portfolio Tab**
+- **Target vs Current**: Compare AI-recommended weights with your holdings
+- **Reasoning Display**: See why each asset is recommended
+- **Easy Editing**: Update your current portfolio allocation interactively
+- **Auto-sync**: Save changes to local holdings file
 
 ## Configuration
 
@@ -126,11 +154,13 @@ tail -f logs/app.log
 
 ## Dependencies
 
+- **gradio**: Interactive web GUI
 - **backtrader**: Backtesting engine
 - **akshare/yfinance**: Market data sources
 - **pandas/numpy**: Data processing
 - **matplotlib/seaborn**: Visualization
 - **loguru**: Professional logging
+- **python-dotenv**: Environment variable management
 
 ## License
 

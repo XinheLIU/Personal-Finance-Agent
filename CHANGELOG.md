@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.3.0] - 2025-07-31
+## [0.2.0] - 2025-07-31
 
 ### Added
 
@@ -14,26 +14,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Portfolio Tab:** A consolidated tab to monitor target vs. current portfolio weights and edit current holdings.
 - **Holdings Management:** Added functionality to store and manage user's current portfolio holdings in `data/holdings.json`.
 - **On-Demand Calculation:** The application now pre-calculates and caches target weights on startup for immediate display in the GUI.
+- **Analytics Module:** Introduced a new `src/analytics.py` module to generate detailed CSV reports for debugging and analysis.
+- **Rebalancing Log:** The backtesting engine now produces a detailed rebalancing log in CSV format, stored in the new `/analytics` directory.
+- **FRED API Integration:** Added support for US Treasury yield data via FRED API with yfinance fallback for reliable data sourcing.
+- **Enhanced PE Data Accuracy:** Implemented ETF-based PE data collection (SPY, QQQ, FXI) instead of index-based for more accurate valuation metrics.
 
 ### Changed
 
 - **Decoupled Logic:** Refactored the weight calculation logic out of the `backtrader` strategy to allow for standalone use in the GUI.
-- **Error Handling:** Improved error handling in the GUI to provide better feedback to the user.
-- **Dependencies:** Added `gradio` to `requirements.txt`.
-
-## [0.2.0] - 2025-07-28
-
-### Added
-
-- **Analytics Module:** Introduced a new `src/analytics.py` module to generate detailed CSV reports for debugging and analysis.
-- **Rebalancing Log:** The backtesting engine now produces a detailed rebalancing log in CSV format, stored in the new `/analytics` directory.
-
-### Changed
-
+- **Error Handling:** Improved error handling in the GUI to provide better feedback to the user and prevent CSV parsing errors.
 - **Data Storage:** Restructured the `/data` directory to segregate price, PE, and yield data into separate subdirectories for improved scalability.
 - **File Naming:** Updated the data file naming convention to a more standardized format: `ASSET_YYYYMMDD_to_YYYYMMDD.csv`.
 - **Reporting Output:** All generated reports and charts are now saved to the `/analytics` directory.
-- **Improved Debugging:** The new rebalancing log provides a detailed, step-by-step view of the strategy's execution, making it easier to debug and adjust.
+- **Data Sources:** Updated PE data collection to use ETF tickers (SPY, QQQ, FXI) instead of index tickers for improved accuracy.
+- **Historical Data Range:** Extended PE data collection to cover the last 20 years (from 2004) instead of default yfinance range.
+- **Dependencies:** Added `gradio` and `python-dotenv` to `requirements.txt` for GUI and environment variable support.
+
+### Fixed
+
+- **US10Y Data Loading:** Fixed yield data integration in market data loading pipeline.
+- **Character Encoding:** Improved handling of international data sources with proper UTF-8 encoding.
+- **Data Validation:** Enhanced data cleaning to remove invalid PE values and handle mixed data source formats.
 
 ## [0.1.0] - 2025-07-22
 
