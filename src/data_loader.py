@@ -2,9 +2,9 @@ import backtrader as bt
 import pandas as pd
 import os
 from src.app_logger import LOG
-from src.config import PE_ASSETS, ASSETS
+from src.config import PE_ASSETS, ASSETS, INDEX_ASSETS
 
-def load_data_feed(asset_name, name):
+def load_data_feed(asset_name, name, start_date=None):
     """Load data feed from CSV file with new naming convention"""
     data_dir = os.path.join('data', 'price')
     if not os.path.exists(data_dir):
@@ -33,6 +33,9 @@ def load_data_feed(asset_name, name):
             
         df['datetime'] = pd.to_datetime(df['datetime'])
         df.set_index('datetime', inplace=True)
+
+        if start_date:
+            df = df[df.index >= pd.to_datetime(start_date)]
         
         df['open'] = df['close'].astype(float)
         df['high'] = df['close'].astype(float) * 1.01

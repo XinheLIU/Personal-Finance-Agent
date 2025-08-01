@@ -5,6 +5,40 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2025-08-01
+
+### Added
+
+- **Built-in Strategies:** Added several built-in, fixed-weight portfolio strategies for comparison and benchmarking:
+    - 60/40 Portfolio (60% Stocks, 40% Bonds)
+    - Permanent Portfolio (25% Stocks, 25% Bonds, 25% Cash, 25% Gold)
+    - All-Weather Portfolio (complex allocation with proxies for missing assets)
+    - David Swensen's Portfolio (diversified portfolio with proxies for missing assets)
+- **Custom Strategy Builder:** Added a new "Custom Strategy" tab in the GUI to allow users to create and backtest their own fixed-weight strategies by assigning weights to available assets.
+- **CLI Mode:** Implemented a command-line interface (CLI) mode to run backtests without launching the GUI. Use `python -m src.main --mode cli` to run all strategies.
+- **Data Download Button:** Added a "Download/Refresh All Data" button in the GUI to trigger the data download script directly from the application.
+- **Strategy Details in GUI:** The "Backtest" tab now displays the underlying assets and their weights for the selected strategy.
+- **Gap Analysis in GUI:** The "Portfolio" tab now includes a "Gap Analysis" table to visualize the difference between the selected strategy and the user's current holdings.
+- **Backtest Start Date:** Users can now specify a start date for backtests in the GUI.
+- **Enhanced Data Management Tab:** The "Data" tab now displays a list of all available data files and allows users to download data for new tickers.
+- **Backtest Tests:** Added a new test file, `tests/test_backtest.py`, to run backtests for all strategies and ensure they complete successfully.
+
+### Changed
+
+- **Refactored `main.py`:** The main script now acts as a central entry point for both GUI and CLI modes, determined by the `--mode` argument.
+- **Strategy Implementation:** Refactored fixed-weight strategies to inherit from a common `FixedWeightStrategy` base class, reducing code duplication.
+- **GUI Layout:** Reorganized the GUI with new tabs for "Custom Strategy" and "Data" to improve usability.
+- **Merged Test Directories:** The `src/test` directory has been merged into the top-level `tests` directory to consolidate all tests in one location.
+- **Sanitized Strategy Names:** Strategy names are now sanitized before being used in file paths to prevent errors with special characters.
+
+### Fixed
+
+- **Buy and Hold Backtest:** Fixed an issue where the "Buy and Hold" strategy would fail due to a missing Sharpe Ratio analyzer.
+
+### Removed
+
+- **`backtest_runner.py`:** The functionality of this script has been integrated into `src/main.py` and the file has been removed.
+
 ## [0.2.1] - 2025-01-30
 
 ### Added

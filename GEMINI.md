@@ -50,4 +50,32 @@ The goal is to help you maintain a big picture as well as the progress of the ta
 
 # Scratchpad
 
-## Current Task: 
+## Current Task: Refactor for Extensibility and Add Features
+
+### Plan
+
+[X] **Phase 1: Code Analysis and Initial Refactoring**
+    [X] Read key files (`main.py`, `gui.py`, `strategy.py`, `backtest_runner.py`, `config.py`)
+    [X] Understand current strategy implementation and execution flow.
+    [X] Formulate a detailed implementation plan.
+
+[X] **Phase 2: Add Built-in Strategies**
+    [X] Check `config.py` for available assets.
+    [X] Implement fixed-weight strategies in `src/strategy.py`:
+        [X] 60/40 Portfolio
+        [X] Permanent Portfolio
+        [X] All Weather Portfolio
+        [X] David Swensen's Portfolio
+    [X] Verify existing Buy and Hold strategy.
+
+[X] **Phase 3: Separate GUI and CLI modes**
+    [X] Refactor `src/main.py` to accept a `--mode` argument (`gui` or `cli`).
+    [X] Consolidate `backtest_runner.py` logic into the `cli` mode in `main.py`.
+
+[X] **Phase 4: GUI Enhancements**
+    [X] Add UI in `src/gui.py` for creating custom fixed-weight strategies.
+    [X] Add a "Download Data" button that executes `data_download.py`.
+
+[X] **Phase 5: Documentation**
+    [X] Update `README.md` with new features and instructions.
+    [X] Update `CHANGELOG.md` with a new version entry.

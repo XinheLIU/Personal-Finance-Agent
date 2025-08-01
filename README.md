@@ -13,6 +13,10 @@ A modular backtesting framework for testing custom asset allocation strategies a
 
 **Included Strategies:**
 - **Dynamic Allocation**: PE-based valuation strategy with yield considerations
+- **60/40 Portfolio**: A classic balanced portfolio.
+- **Permanent Portfolio**: Harry Browne's strategy for all economic conditions.
+- **All-Weather Portfolio**: Ray Dalio's strategy for weathering economic storms.
+- **David Swensen's Portfolio**: A diversified, equity-oriented portfolio.
 - **Buy & Hold**: Simple benchmark for comparison
 
 ## Quick Start
@@ -32,16 +36,18 @@ python -m src.data_download
 Downloads historical price and PE data for all assets with smart caching.
 
 ### 3. Launch Application
+
+**GUI Mode:**
 ```bash
-python -m src.main
+python -m src.main --mode gui
 ```
 This launches the interactive GUI in your browser for easy backtesting and portfolio management.
 
-**Alternative - Command Line:**
+**Command-Line Mode:**
 ```bash
-# For command-line backtesting (legacy)
-python -m src.backtest_runner
+python -m src.main --mode cli
 ```
+This runs all available backtesting strategies and prints the results to the console.
 
 ### 4. View Results
 - **GUI**: Interactive performance charts and portfolio comparison tables
@@ -54,7 +60,7 @@ python -m src.backtest_runner
 ```
 Personal-Finance-Agent/
 ├── src/                    # Core framework
-│   ├── main.py            # Launch GUI application
+│   ├── main.py            # Launch GUI application or CLI backtests
 │   ├── gui.py             # Gradio web interface
 │   ├── strategy.py        # Strategy implementations
 │   ├── analytics.py       # CSV reports and analysis
@@ -98,23 +104,38 @@ run_backtest(MyStrategy, "My Strategy")
 ### 3. Test
 ```bash
 python -m pytest tests/ -v
-python -m src.main
+python -m src.main --mode cli
 ```
 
 ## GUI Features
 
-The Gradio web interface provides two main tabs:
+The Gradio web interface provides four comprehensive tabs:
 
 ### **Backtest Tab**
+- **Strategy Selection**: Choose from Dynamic Allocation, 60/40, Permanent Portfolio, All Weather, David Swensen, or create custom strategies
+- **Strategy Details**: View the underlying assets and their weights for the selected strategy
 - **Interactive Parameters**: Adjust rebalancing frequency and threshold sliders
+- **Custom Start Date**: Specify backtest start date to analyze performance over different time periods
 - **Real-time Results**: View performance metrics and portfolio value charts
 - **Easy Testing**: No command-line knowledge required
 
+### **Custom Strategy Tab**
+- **Create Your Own**: Define your own fixed-weight portfolio by assigning weights to available assets
+- **Backtest Your Creation**: Run a backtest on your custom strategy and see how it performs
+- **Weight Validation**: Automatic validation ensures total weights equal 100%
+
 ### **Portfolio Tab**
 - **Target vs Current**: Compare AI-recommended weights with your holdings
+- **Gap Analysis**: Visualize the difference between selected strategy and your current holdings
+- **Asset Details**: View region, index source (for PE data), and tradable products (CN/US options)
 - **Reasoning Display**: See why each asset is recommended
 - **Easy Editing**: Update your current portfolio allocation interactively
 - **Auto-sync**: Save changes to local holdings file
+
+### **Data Tab**
+- **Available Data Overview**: View all downloaded data files with date ranges
+- **Download Data**: Download or refresh all required market data with a single click
+- **New Ticker Downloads**: Add new tickers directly from the GUI interface
 
 ## Configuration
 
@@ -133,7 +154,7 @@ Edit `src/config.py` to:
 ## Troubleshooting
 
 ### Common Issues
-- **"No PE data available"**: Run `python -m src.data_download`
+- **"No PE data available"**: Run `python -m src.data_download` or use the "Download Data" button in the GUI.
 - **Import errors**: Use `python -m src.main` (not `python src/main.py`)
 - **Missing data**: Check `data/` directory and re-run data download
 
@@ -165,4 +186,3 @@ tail -f logs/app.log
 ## License
 
 Educational use only. Ensure compliance with data provider terms.
-

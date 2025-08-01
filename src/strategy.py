@@ -4,7 +4,7 @@ import numpy as np
 import os
 import akshare as ak
 from src.app_logger import LOG
-from src.config import DYNAMIC_STRATEGY_PARAMS
+from src.config import DYNAMIC_STRATEGY_PARAMS, INDEX_ASSETS, TRADABLE_ASSETS
 from src.data_loader import load_market_data, load_pe_data
 from src.strategy_utils import calculate_pe_percentile, calculate_yield_percentile, get_current_yield
 
@@ -116,17 +116,7 @@ class DynamicAllocationStrategy(bt.Strategy):
         self.rebalance_log = []
         self.portfolio_values = []
         self.portfolio_dates = []
-        self.data_feeds = {
-            'CSI300': self.datas[0] if len(self.datas) > 0 else None,
-            'CSI500': self.datas[1] if len(self.datas) > 1 else None,
-            'HSI': self.datas[2] if len(self.datas) > 2 else None,
-            'HSTECH': self.datas[3] if len(self.datas) > 3 else None,
-            'SP500': self.datas[4] if len(self.datas) > 4 else None,
-            'NASDAQ100': self.datas[5] if len(self.datas) > 5 else None,
-            'TLT': self.datas[6] if len(self.datas) > 6 else None,
-            'GLD': self.datas[7] if len(self.datas) > 7 else None,
-            'CASH': self.datas[8] if len(self.datas) > 8 else None,
-        }
+        self.data_feeds = {data._name: data for data in self.datas}
         
     def calculate_target_weights(self, current_date):
         return calculate_target_weights_standalone(current_date, self.pe_cache, self.market_data)
@@ -163,24 +153,8 @@ class DynamicAllocationStrategy(bt.Strategy):
             if data_feed is None:
                 continue
             target_value = total_value * target_weight
-            current_position = self.getposition(data_feed)
-            current_value = current_position.size * data_feed.close[0]
-            if target_value == 0 and current_position.size > 0:
-                order = self.close(data_feed)
-                LOG.info(f"Closing {asset} position")
-                transactions.append(f"Close {asset}")
-            elif target_value > 0:
-                target_shares = int(target_value / data_feed.close[0])
-                shares_to_trade = target_shares - current_position.size
-                if abs(shares_to_trade) > 0:
-                    if shares_to_trade > 0:
-                        self.buy(data=data_feed, size=shares_to_trade)
-                        LOG.info(f"Buying {shares_to_trade} shares of {asset}")
-                        transactions.append(f"Buy {shares_to_trade} of {asset}")
-                    else:
-                        self.sell(data=data_feed, size=abs(shares_to_trade))
-                        LOG.info(f"Selling {abs(shares_to_trade)} shares of {asset}")
-                        transactions.append(f"Sell {abs(shares_to_trade)} of {asset}")
+            self.order_target_percent(data=data_feed, target=target_weight)
+
 
         rebalance_details = {
             'date': self.datas[0].datetime.date(0),
@@ -215,6 +189,70 @@ class DynamicAllocationStrategy(bt.Strategy):
             except Exception as e:
                 LOG.error(f"Strategy execution failed on {current_date}: {e}")
                 raise
+
+class FixedWeightStrategy(bt.Strategy):
+    params = (
+        ('rebalance_days', 360),
+        ('target_weights', {}),
+    )
+
+    def __init__(self):
+        self.last_rebalance = 0
+        self.portfolio_values = []
+        self.portfolio_dates = []
+        self.data_feeds = {data._name: data for data in self.datas}
+        self.validate_assets()
+
+    def validate_assets(self):
+        """Check if all assets in target_weights are in data_feeds."""
+        for asset in self.p.target_weights:
+            if asset not in self.data_feeds:
+                LOG.warning(f"Asset '{asset}' in strategy '{self.__class__.__name__}' not found in available data. It will be ignored.")
+
+    def next(self):
+        current_date = self.datas[0].datetime.date(0)
+        portfolio_value = self.broker.getvalue()
+        self.portfolio_values.append(portfolio_value)
+        self.portfolio_dates.append(current_date)
+
+        if (len(self) - self.last_rebalance >= self.p.rebalance_days) or len(self) == 1:
+            self.rebalance_portfolio()
+            self.last_rebalance = len(self)
+
+    def rebalance_portfolio(self):
+        LOG.info(f"Rebalancing for {self.__class__.__name__} on {self.datas[0].datetime.date(0)}")
+        for asset, target_weight in self.p.target_weights.items():
+            if asset in self.data_feeds:
+                self.order_target_percent(data=self.data_feeds[asset], target=target_weight)
+
+class SixtyFortyStrategy(FixedWeightStrategy):
+    def __init__(self):
+        # 60% Stocks (S&P 500), 40% Bonds (US Treasury)
+        self.p.target_weights = {'SP500': 0.60, 'TLT': 0.40}
+        super().__init__()
+
+class PermanentPortfolioStrategy(FixedWeightStrategy):
+    def __init__(self):
+        # 25% Stocks (S&P 500), 25% Long-Term Bonds (TLT), 25% Cash (SHV), 25% Gold (GLD)
+        self.p.target_weights = {'SP500': 0.25, 'TLT': 0.25, 'CASH': 0.25, 'GLD': 0.25}
+        super().__init__()
+
+class AllWeatherPortfolioStrategy(FixedWeightStrategy):
+    def __init__(self):
+        # 30% Stocks (S&P 500), 40% Long-Term Bonds (TLT), 15% Intermediate-Term Bonds (using TLT as proxy), 7.5% Gold, 7.5% Commodities (using GLD as proxy)
+        LOG.warning("Using TLT as a proxy for Intermediate-Term Bonds in AllWeatherPortfolioStrategy.")
+        LOG.warning("Using GLD as a proxy for a broad commodities basket in AllWeatherPortfolioStrategy.")
+        self.p.target_weights = {'SP500': 0.30, 'TLT': 0.55, 'GLD': 0.15}
+        super().__init__()
+
+class DavidSwensenPortfolioStrategy(FixedWeightStrategy):
+    def __init__(self):
+        # 30% US Equities (S&P 500), 15% International Developed Equities (using SP500 as proxy), 5% Emerging Market Equities (using CSI300 as proxy), 20% REITs (using SP500 as proxy), 15% Long-Term Treasuries, 15% TIPS (using TLT as proxy)
+        LOG.warning("Using SP500 as a proxy for International Developed Equities and REITs in DavidSwensenPortfolioStrategy.")
+        LOG.warning("Using CSI300 as a proxy for Emerging Market Equities in DavidSwensenPortfolioStrategy.")
+        LOG.warning("Using TLT as a proxy for TIPS in DavidSwensenPortfolioStrategy.")
+        self.p.target_weights = {'SP500': 0.65, 'CSI300': 0.05, 'TLT': 0.30}
+        super().__init__()
 
 class BuyAndHoldStrategy(bt.Strategy):
     def __init__(self):

@@ -6,7 +6,7 @@ import requests
 import glob
 from datetime import datetime
 from src.app_logger import LOG
-from src.config import ASSETS, PE_ASSETS, YIELD_ASSETS
+from src.config import ASSETS, PE_ASSETS, YIELD_ASSETS, INDEX_ASSETS
 
 def get_data_range_info(df):
     """Extract data range information from DataFrame"""
@@ -204,8 +204,9 @@ def fill_pe_data_to_recent(pe_df, asset_name, target_date=None):
     LOG.info(f"Need to fill P/E data for {asset_name} from {latest_manual_date.date()} to recent date")
     
     # Get the asset configuration for fallback data sources
-    from src.config import ASSETS
-    asset_config = ASSETS.get(asset_name, {})
+    # Use INDEX_ASSETS for PE data since PE ratios come from indices, not ETFs
+    from src.config import INDEX_ASSETS
+    asset_config = INDEX_ASSETS.get(asset_name, {})
     yfinance_ticker = asset_config.get('yfinance')
     
     # Attempt 1: Try Yahoo Finance for recent P/E data

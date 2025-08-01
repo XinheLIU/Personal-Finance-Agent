@@ -39,7 +39,7 @@ def create_performance_summary_table(results, strategy_name, initial_capital):
         annualized_return = total_return
         
     max_drawdown = drawdown_analysis.max.drawdown if hasattr(drawdown_analysis, 'max') else 0
-    sharpe_ratio = sharpe_analysis.get('sharperatio', 0) if sharpe_analysis else 0
+    sharpe_ratio = sharpe_analysis.get('sharperatio', 0) if sharpe_analysis and sharpe_analysis.get('sharperatio') is not None else 0
     
     # Create performance summary table
     summary_data = {
