@@ -3,6 +3,7 @@ import pandas as pd
 import os
 import argparse
 import requests
+import glob
 from datetime import datetime
 from src.app_logger import LOG
 from src.config import ASSETS, PE_ASSETS, YIELD_ASSETS
@@ -37,6 +38,296 @@ def generate_filename(asset_name, start_date=None, end_date=None):
         return f"{asset_name}_{start_str}_to_{end_str}.csv"
     else:
         return f"{asset_name}.csv"
+
+def parse_manual_pe_date(date_str, asset_name):
+    """Parse date strings from different manual P/E file formats"""
+    try:
+        if asset_name in ['HSI', 'HSTECH']:
+            # Format: "Dec 2021" -> convert to end of month
+            date_obj = pd.to_datetime(date_str, format='%b %Y')
+            # Convert to end of month for consistency
+            return date_obj + pd.offsets.MonthEnd(0)
+        elif asset_name == 'SP500':
+            # Format: "2025/03/01" -> first day of month, convert to end of month
+            date_obj = pd.to_datetime(date_str, format='%Y/%m/%d')
+            return date_obj + pd.offsets.MonthEnd(0)
+        elif asset_name == 'NASDAQ100':
+            # Format: "2024/12/31" -> already end of month
+            return pd.to_datetime(date_str, format='%Y/%m/%d')
+        else:
+            # Try general parsing
+            return pd.to_datetime(date_str)
+    except Exception as e:
+        LOG.warning(f"Failed to parse date '{date_str}' for {asset_name}: {e}")
+        return None
+
+def find_manual_pe_files(manual_file_pattern):
+    """Find manual P/E files matching the pattern (.xlsx or .csv)"""
+    # Look in data/pe directory and project root
+    search_paths = ['data/pe/', './']
+    found_files = []
+    
+    for search_path in search_paths:
+        # Look for both Excel and CSV files
+        for extension in ['.xlsx', '.csv']:
+            pattern = os.path.join(search_path, f"{manual_file_pattern}*{extension}")
+            files = glob.glob(pattern)
+            found_files.extend(files)
+    
+    if found_files:
+        # Return the most recent file (assuming date suffix in filename)
+        return sorted(found_files)[-1]
+    return None
+
+def process_manual_pe_file(filepath, asset_name):
+    """Process and reformat manual P/E file to standard format (CSV or Excel)"""
+    try:
+        LOG.info(f"Processing manual P/E file for {asset_name}: {filepath}")
+        
+        # Read the file (Excel or CSV)
+        if filepath.endswith('.xlsx'):
+            try:
+                # Try reading Excel file with openpyxl engine (required for .xlsx)
+                df = pd.read_excel(filepath, sheet_name=0, engine='openpyxl')
+                LOG.info(f"Reading Excel file: {filepath}")
+            except Exception as excel_error:
+                LOG.warning(f"Failed to read Excel file {filepath} with openpyxl: {excel_error}")
+                # Try reading with different approaches
+                try:
+                    # First try without specifying sheet
+                    df = pd.read_excel(filepath, engine='openpyxl')
+                    LOG.info(f"Successfully read Excel file using default sheet: {filepath}")
+                except Exception as fallback_error:
+                    try:
+                        # Try with xlsxwriter engine as last resort
+                        df = pd.read_excel(filepath)
+                        LOG.info(f"Successfully read Excel file with default engine: {filepath}")
+                    except Exception as final_error:
+                        raise ValueError(f"Cannot read Excel file {filepath}. Tried openpyxl and default engines. "
+                                       f"Original error: {excel_error}. Final error: {final_error}. "
+                                       f"Please ensure the file is a valid Excel file and openpyxl is installed.")
+        elif filepath.endswith('.csv'):
+            df = pd.read_csv(filepath)
+            LOG.info(f"Reading CSV file: {filepath}")
+        else:
+            raise ValueError(f"Unsupported file format: {filepath}. Only .xlsx and .csv are supported.")
+        
+        # Handle different column formats based on asset
+        if asset_name in ['HSI', 'HSTECH']:
+            # Format: Date, Value (where Value is P/E ratio)
+            if 'Date' in df.columns and 'Value' in df.columns:
+                df = df.rename(columns={'Date': 'date', 'Value': 'pe_ratio'})
+            else:
+                raise ValueError(f"Expected columns 'Date' and 'Value' not found in {filepath}")
+                
+        elif asset_name == 'SP500':
+            # Format: Date, Value (where Value is P/E ratio) - handle both capitalized and lowercase
+            date_col = None
+            value_col = None
+            
+            # Find date column (case insensitive)
+            for col in df.columns:
+                if col.strip().lower() == 'date':
+                    date_col = col
+                    break
+            
+            # Find value column (case insensitive)  
+            for col in df.columns:
+                if col.strip().lower() == 'value':
+                    value_col = col
+                    break
+            
+            if date_col and value_col:
+                df = df.rename(columns={date_col: 'date', value_col: 'pe_ratio'})
+            else:
+                raise ValueError(f"Expected columns 'Date/date' and 'Value/value' not found in {filepath}. Found: {list(df.columns)}")
+                
+        elif asset_name == 'NASDAQ100':
+            # Format: Date, Price, PE Ratio
+            if 'Date' in df.columns and 'PE Ratio' in df.columns:
+                df = df.rename(columns={'Date': 'date', 'PE Ratio': 'pe_ratio'})
+                df = df[['date', 'pe_ratio']]  # Keep only date and PE ratio
+            else:
+                raise ValueError(f"Expected columns 'Date' and 'PE Ratio' not found in {filepath}")
+        
+        # Parse dates using asset-specific format
+        df['date'] = df['date'].apply(lambda x: parse_manual_pe_date(x, asset_name))
+        
+        # Remove rows with invalid dates
+        df = df.dropna(subset=['date'])
+        
+        # Convert PE ratio to numeric first (this handles "--" and other non-numeric values)
+        df['pe_ratio'] = pd.to_numeric(df['pe_ratio'], errors='coerce')
+        
+        # Remove rows with invalid PE ratios (NaN, negative, or zero)
+        df = df.dropna(subset=['pe_ratio'])
+        df = df[df['pe_ratio'] > 0]
+        
+        # Sort by date
+        df = df.sort_values('date')
+        
+        if df.empty:
+            raise ValueError(f"No valid data after processing {filepath}")
+        
+        LOG.info(f"Processed {len(df)} P/E data points for {asset_name}")
+        return df
+        
+    except Exception as e:
+        LOG.error(f"Error processing manual P/E file {filepath}: {e}")
+        raise
+
+def fill_pe_data_to_recent(pe_df, asset_name, target_date=None):
+    """
+    Fill P/E data from manual file to recent date using fallback methods:
+    1. Try Yahoo Finance for recent P/E data
+    2. If Yahoo fails, use price data with earnings assumption
+    """
+    if target_date is None:
+        target_date = pd.Timestamp.now()
+    else:
+        target_date = pd.to_datetime(target_date)
+    
+    if pe_df.empty:
+        LOG.error(f"Cannot fill empty P/E data for {asset_name}")
+        return pe_df
+    
+    # Get the latest date in manual data
+    latest_manual_date = pe_df['date'].max()
+    LOG.info(f"Manual P/E data for {asset_name} ends on: {latest_manual_date.date()}")
+    
+    # Check if we need to fill to recent date (if manual data is older than 2 months)
+    months_gap = (target_date - latest_manual_date).days / 30
+    if months_gap < 2:
+        LOG.info(f"Manual P/E data for {asset_name} is recent enough ({months_gap:.1f} months old)")
+        return pe_df
+    
+    LOG.info(f"Need to fill P/E data for {asset_name} from {latest_manual_date.date()} to recent date")
+    
+    # Get the asset configuration for fallback data sources
+    from src.config import ASSETS
+    asset_config = ASSETS.get(asset_name, {})
+    yfinance_ticker = asset_config.get('yfinance')
+    
+    # Attempt 1: Try Yahoo Finance for recent P/E data
+    recent_pe_data = None
+    if yfinance_ticker:
+        LOG.info(f"Attempting to fill {asset_name} P/E data using Yahoo Finance ticker: {yfinance_ticker}")
+        recent_pe_data = get_recent_pe_from_yfinance(yfinance_ticker, latest_manual_date, target_date)
+    
+    # Attempt 2: If Yahoo fails, use price-based estimation
+    if recent_pe_data is None or recent_pe_data.empty:
+        LOG.warning(f"Yahoo Finance P/E data failed for {asset_name}, trying price-based estimation")
+        recent_pe_data = estimate_recent_pe_from_price(asset_name, yfinance_ticker, pe_df, latest_manual_date, target_date)
+    
+    # Combine manual data with recent data
+    if recent_pe_data is not None and not recent_pe_data.empty:
+        # Filter out overlapping dates to avoid duplicates
+        recent_pe_data = recent_pe_data[recent_pe_data['date'] > latest_manual_date]
+        if not recent_pe_data.empty:
+            combined_df = pd.concat([pe_df, recent_pe_data], ignore_index=True)
+            combined_df = combined_df.sort_values('date')
+            LOG.info(f"Successfully filled {asset_name} P/E data with {len(recent_pe_data)} additional data points")
+            return combined_df
+        else:
+            LOG.info(f"No additional recent P/E data found for {asset_name}")
+    else:
+        LOG.warning(f"Failed to obtain recent P/E data for {asset_name} using all fallback methods")
+    
+    return pe_df
+
+def get_recent_pe_from_yfinance(ticker, start_date, end_date):
+    """Get recent P/E data from Yahoo Finance"""
+    try:
+        import yfinance as yf
+        LOG.info(f"Downloading recent P/E data from Yahoo Finance for {ticker}")
+        
+        ticker_obj = yf.Ticker(ticker)
+        info = ticker_obj.info
+        current_pe = info.get('trailingPE')
+        
+        if current_pe and current_pe > 0:
+            # Create a single data point with current P/E
+            recent_data = pd.DataFrame({
+                'date': [pd.Timestamp.now().normalize()],
+                'pe_ratio': [current_pe]
+            })
+            LOG.info(f"Retrieved current P/E from Yahoo Finance for {ticker}: {current_pe:.2f}")
+            return recent_data
+        else:
+            LOG.warning(f"No valid trailing P/E found in Yahoo Finance for {ticker}")
+            return None
+            
+    except Exception as e:
+        LOG.warning(f"Yahoo Finance P/E retrieval failed for {ticker}: {e}")
+        return None
+
+def estimate_recent_pe_from_price(asset_name, ticker, historical_pe_df, start_date, end_date):
+    """Estimate recent P/E using price data and earnings assumption"""
+    try:
+        if not ticker:
+            LOG.warning(f"No ticker available for price-based P/E estimation for {asset_name}")
+            return None
+            
+        import yfinance as yf
+        LOG.info(f"Attempting price-based P/E estimation for {asset_name} using ticker {ticker}")
+        
+        # Get recent price data
+        ticker_obj = yf.Ticker(ticker)
+        price_data = ticker_obj.history(start=start_date, end=end_date)
+        
+        if price_data.empty:
+            LOG.warning(f"No recent price data available for {ticker}")
+            return None
+        
+        # Get the latest P/E ratio from manual data to use as baseline
+        if historical_pe_df.empty:
+            LOG.warning(f"No historical P/E data available for baseline estimation")
+            return None
+            
+        latest_manual_pe = historical_pe_df['pe_ratio'].iloc[-1]
+        latest_manual_date = historical_pe_df['date'].iloc[-1]
+        
+        # Find price around the latest manual P/E date (within 30 days)
+        price_data.index = price_data.index.tz_localize(None)  # Remove timezone for comparison
+        baseline_date = pd.to_datetime(latest_manual_date)
+        
+        # Get price near the baseline date
+        date_range_start = baseline_date - pd.Timedelta(days=15)
+        date_range_end = baseline_date + pd.Timedelta(days=15)
+        baseline_prices = price_data.loc[date_range_start:date_range_end]
+        
+        if baseline_prices.empty:
+            LOG.warning(f"No price data available around baseline date {baseline_date.date()} for {ticker}")
+            return None
+            
+        baseline_price = baseline_prices['Close'].mean()  # Use average price around baseline date
+        
+        # Estimate P/E for recent dates assuming earnings unchanged
+        # PE_new = PE_old * (Price_new / Price_old)
+        recent_pe_data = []
+        
+        for date, row in price_data.iterrows():
+            if date > baseline_date:
+                current_price = row['Close']
+                estimated_pe = latest_manual_pe * (current_price / baseline_price)
+                recent_pe_data.append({
+                    'date': date,
+                    'pe_ratio': estimated_pe
+                })
+        
+        if recent_pe_data:
+            estimated_df = pd.DataFrame(recent_pe_data)
+            LOG.info(f"Estimated {len(estimated_df)} P/E data points for {asset_name} using price-based method")
+            LOG.info(f"Baseline: P/E={latest_manual_pe:.2f} at price=${baseline_price:.2f} on {baseline_date.date()}")
+            LOG.info(f"Latest estimate: P/E={estimated_df['pe_ratio'].iloc[-1]:.2f} (assumes earnings unchanged)")
+            return estimated_df
+        else:
+            LOG.warning(f"No recent price data found after baseline date for {asset_name}")
+            return None
+            
+    except Exception as e:
+        LOG.warning(f"Price-based P/E estimation failed for {asset_name}: {e}")
+        return None
 
 def check_existing_data(asset_name, data_type, refresh=False):
     """Check if data file exists and is valid"""
@@ -248,8 +539,8 @@ def download_asset_data(asset_name, akshare_symbol=None, yfinance_ticker=None, d
     LOG.error(error_msg)
     raise ValueError(error_msg)
 
-def download_pe_data(asset_name, akshare_symbol=None, yfinance_ticker=None, refresh=False):
-    """Download PE ratio data with fallback strategy"""
+def download_pe_data(asset_name, akshare_symbol=None, manual_file_pattern=None, refresh=False):
+    """Download PE ratio data using manual files or akshare"""
     data_type = "pe"
     exists, date_range = check_existing_data(asset_name, data_type, refresh)
     if exists:
@@ -257,7 +548,22 @@ def download_pe_data(asset_name, akshare_symbol=None, yfinance_ticker=None, refr
     
     try:
         pe_df = pd.DataFrame()
-        if akshare_symbol:
+        
+        # Try manual file first (for HSI, HSTECH, SP500, NASDAQ100)
+        if manual_file_pattern:
+            manual_file = find_manual_pe_files(manual_file_pattern)
+            if manual_file:
+                # Process manual file and standardize format
+                pe_df = process_manual_pe_file(manual_file, asset_name)
+                # Fill to recent date using fallback methods
+                pe_df = fill_pe_data_to_recent(pe_df, asset_name)
+            else:
+                raise FileNotFoundError(f"Manual P/E file not found for {asset_name}. "
+                                      f"Please download '{manual_file_pattern}*.csv' file "
+                                      f"and place it in data/pe/ or project root directory.")
+        
+        # Try akshare (for CSI300, CSI500)
+        elif akshare_symbol:
             try:
                 LOG.info(f"Downloading PE data for {asset_name} via akshare...")
                 if asset_name == 'CSI300':
@@ -265,60 +571,24 @@ def download_pe_data(asset_name, akshare_symbol=None, yfinance_ticker=None, refr
                     if not df.empty:
                         pe_df = df.rename(columns={'日期': 'date', '静态市盈率': 'pe_ratio', '等权静态市盈率': 'equal_weight_pe', '静态市盈率中位数': 'median_pe'})
                         pe_df = pe_df[['date', 'pe_ratio', 'equal_weight_pe', 'median_pe']]
+                        pe_df['date'] = pd.to_datetime(pe_df['date'])
                 elif asset_name == 'CSI500':
                     df = ak.stock_market_pe_lg()
                     if not df.empty:
-                        pe_df = df.rename(columns={'日期': 'date', '平均市盈率': 'avg_pe'})
-                        pe_df = pe_df[['date', 'avg_pe']]
-                elif akshare_symbol.isdigit() and len(akshare_symbol) == 6:
-                    # ETF codes don't have PE data available from akshare, skip to yfinance
-                    LOG.info(f"ETF {akshare_symbol} detected, skipping akshare PE data (not available)")
+                        pe_df = df.rename(columns={'日期': 'date', '平均市盈率': 'pe_ratio'})
+                        pe_df = pe_df[['date', 'pe_ratio']]
+                        pe_df['date'] = pd.to_datetime(pe_df['date'])
                 else:
-                    LOG.warning(f"No PE data logic implemented for {asset_name} with symbol {akshare_symbol}")
+                    LOG.warning(f"No akshare PE data logic implemented for {asset_name}")
+                
+                # Clean akshare data
+                if not pe_df.empty:
+                    pe_df = pe_df.dropna(subset=['date', 'pe_ratio'])
+                    pe_df = pe_df[pe_df['pe_ratio'] > 0]
+                    pe_df = pe_df.sort_values('date')
+                    
             except Exception as e:
                 LOG.warning(f"Akshare PE download failed for {asset_name}: {e}")
-
-        if pe_df.empty and yfinance_ticker:
-            try:
-                import yfinance as yf
-                LOG.info(f"Downloading PE data for {asset_name} via yfinance...")
-                ticker_obj = yf.Ticker(yfinance_ticker)
-                
-                # Get historical data from last 20 years (like price data)
-                hist_data = ticker_obj.history(start='2004-01-01')
-                
-                if not hist_data.empty:
-                    # Get current PE ratio from ticker info
-                    info = ticker_obj.info
-                    current_pe = info.get('trailingPE')
-                    
-                    if current_pe and current_pe > 0:
-                        # Use current PE ratio as the latest PE value
-                        current_price = hist_data['Close'].iloc[-1]
-                        
-                        # Calculate historical PE ratios
-                        # Assumption: PE = Price / Earnings, so if current PE is known, 
-                        # historical PE = historical_price / (current_price / current_pe)
-                        # Simplified: historical_PE = (historical_price / current_price) * current_pe
-                        # But this assumes earnings stayed constant, which is wrong.
-                        # Better approach: assume earnings grow at market rate, use current PE as baseline
-                        hist_data['pe_ratio'] = (hist_data['Close'] / current_price) * current_pe
-                        
-                        pe_df = hist_data.reset_index()[['Date', 'pe_ratio']]
-                        pe_df.columns = ['date', 'pe']
-                        
-                        # Clean the data
-                        pe_df = pe_df.dropna(subset=['date', 'pe'])
-                        pe_df = pe_df[pe_df['pe'] > 0]  # Remove negative/zero PE values
-                        
-                        LOG.info(f"Retrieved {len(pe_df)} PE data points for {asset_name} (current PE: {current_pe:.2f})")
-                    else:
-                        LOG.warning(f"No valid current PE ratio found for {yfinance_ticker}")
-                else:
-                    LOG.warning(f"No historical data found for {yfinance_ticker}")
-                    
-            except Exception as e:
-                LOG.warning(f"Yfinance PE download failed for {asset_name}: {e}")
 
         if not pe_df.empty:
             start_date, end_date = get_data_range_info(pe_df)
@@ -327,10 +597,14 @@ def download_pe_data(asset_name, akshare_symbol=None, yfinance_ticker=None, refr
             os.makedirs(data_dir, exist_ok=True)
             filepath = os.path.join(data_dir, filename)
             pe_df.to_csv(filepath, index=False)
-            LOG.info(f"Successfully downloaded {asset_name} PE data to {filepath}")
+            LOG.info(f"Successfully processed {asset_name} PE data to {filepath}")
             return filepath, start_date, end_date
 
-        error_msg = f"Failed to download PE data for {asset_name} from both sources"
+        error_msg = f"Failed to download PE data for {asset_name}. "
+        if manual_file_pattern:
+            error_msg += f"Manual file '{manual_file_pattern}*.csv' not found."
+        else:
+            error_msg += "Akshare download failed."
         LOG.error(error_msg)
         raise ValueError(error_msg)
         
@@ -403,7 +677,7 @@ def main(refresh=False):
             filepath, start_date, end_date = download_pe_data(
                 asset_name,
                 config.get('akshare'),
-                config.get('yfinance'),
+                config.get('manual_file'),
                 refresh
             )
             downloaded_files.append((asset_name, "pe", filepath, start_date, end_date))

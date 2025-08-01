@@ -18,6 +18,7 @@ def calculate_target_weights_standalone(current_date, pe_cache, market_data):
     try:
         pe_percentiles['CSI300'] = calculate_pe_percentile('CSI300', pe_cache, current_date, 10)
         pe_percentiles['CSI500'] = calculate_pe_percentile('CSI500', pe_cache, current_date, 10)
+        pe_percentiles['HSI'] = calculate_pe_percentile('HSI', pe_cache, current_date, 10)
         pe_percentiles['HSTECH'] = calculate_pe_percentile('HSTECH', pe_cache, current_date, 10)
         pe_percentiles['SP500'] = calculate_pe_percentile('SP500', pe_cache, current_date, 20)
         pe_percentiles['NASDAQ100'] = calculate_pe_percentile('NASDAQ100', pe_cache, current_date, 20)
@@ -25,8 +26,9 @@ def calculate_target_weights_standalone(current_date, pe_cache, market_data):
         yield_pct = calculate_yield_percentile(market_data, current_date, 20)
         current_yield = get_current_yield(market_data, current_date)
         
-        weights['CSI300'] = 0.20 * (1 - pe_percentiles['CSI300'])
-        weights['CSI500'] = 0.20 * (1 - pe_percentiles['CSI500'])
+        weights['CSI300'] = 0.15 * (1 - pe_percentiles['CSI300'])
+        weights['CSI500'] = 0.15 * (1 - pe_percentiles['CSI500'])
+        weights['HSI'] = 0.10 * (1 - pe_percentiles['HSI'])
         weights['HSTECH'] = 0.10 * (1 - pe_percentiles['HSTECH'])
         weights['SP500'] = 0.15 * (1 - pe_percentiles['SP500'])
         weights['NASDAQ100'] = 0.15 * (1 - pe_percentiles['NASDAQ100'])
@@ -49,8 +51,10 @@ def calculate_target_weights_standalone(current_date, pe_cache, market_data):
                 weights[asset] *= scale_factor
         
         LOG.info(f"Date: {current_date}")
-        LOG.info(f"PE Percentiles - CSI300: {pe_percentiles['CSI300']:.2%}, CSI500: {pe_percentiles['CSI500']:.2%}, HSTECH: {pe_percentiles['HSTECH']:.2%}")
-        LOG.info(f"PE Percentiles - SP500: {pe_percentiles['SP500']:.2%}, NASDAQ: {pe_percentiles['NASDAQ100']:.2%}")
+        LOG.info(f"PE Percentiles - CSI300: {pe_percentiles['CSI300']:.2%}, CSI500: {pe_percentiles['CSI500']:.2%}")
+        LOG.info(f"PE Percentiles - HSI: {pe_percentiles['HSI']:.2%}, HSTECH: {pe_percentiles['HSTECH']:.2%}")
+        # LOG.info(f"PE Percentiles - SP500: {pe_percentiles['SP500']:.2%}, NASDAQ: {pe_percentiles['NASDAQ100']:.2%}")  # TEMPORARILY DISABLED
+        LOG.info(f"PE Percentiles - NASDAQ: {pe_percentiles['NASDAQ100']:.2%} (SP500 temporarily disabled)")
         LOG.info(f"Yield: {current_yield:.2f}%, Percentile: {yield_pct:.2%}")
         LOG.info(f"Target weights: {weights}")
         
@@ -115,12 +119,13 @@ class DynamicAllocationStrategy(bt.Strategy):
         self.data_feeds = {
             'CSI300': self.datas[0] if len(self.datas) > 0 else None,
             'CSI500': self.datas[1] if len(self.datas) > 1 else None,
-            'HSTECH': self.datas[2] if len(self.datas) > 2 else None,
-            'SP500': self.datas[3] if len(self.datas) > 3 else None,
-            'NASDAQ100': self.datas[4] if len(self.datas) > 4 else None,
-            'TLT': self.datas[5] if len(self.datas) > 5 else None,
-            'GLD': self.datas[6] if len(self.datas) > 6 else None,
-            'CASH': self.datas[7] if len(self.datas) > 7 else None,
+            'HSI': self.datas[2] if len(self.datas) > 2 else None,
+            'HSTECH': self.datas[3] if len(self.datas) > 3 else None,
+            'SP500': self.datas[4] if len(self.datas) > 4 else None,
+            'NASDAQ100': self.datas[5] if len(self.datas) > 5 else None,
+            'TLT': self.datas[6] if len(self.datas) > 6 else None,
+            'GLD': self.datas[7] if len(self.datas) > 7 else None,
+            'CASH': self.datas[8] if len(self.datas) > 8 else None,
         }
         
     def calculate_target_weights(self, current_date):

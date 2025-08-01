@@ -7,3 +7,4 @@ yfinance
 seaborn
 requests
 python-dotenv
+openpyxl

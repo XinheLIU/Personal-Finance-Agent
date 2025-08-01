@@ -5,6 +5,7 @@ from src.app_logger import LOG
 def calculate_pe_percentile(asset_name, pe_cache, current_date, years=10):
     """
     Calculate PE percentile for a given asset over a specified time period.
+    Handles both daily and monthly P/E data properly.
     """
     if asset_name not in pe_cache or pe_cache[asset_name].empty:
         error_msg = f"No PE data available for {asset_name}. Please ensure PE data is downloaded using data_download.py"
@@ -24,12 +25,20 @@ def calculate_pe_percentile(asset_name, pe_cache, current_date, years=10):
             pe_data = pe_data.copy()
             pe_data.index = pe_data.index.tz_localize(None)
         
+        # For monthly data, find the most recent available P/E data (could be from previous month)
+        available_data_up_to_date = pe_data.loc[:end_date]
+        if available_data_up_to_date.empty:
+            error_msg = f"No PE data available up to {end_date} for {asset_name}. Data range: {pe_data.index.min()} to {pe_data.index.max()}"
+            LOG.error(error_msg)
+            raise ValueError(error_msg)
+        
         period_pe_data = pe_data.loc[start_date:end_date]
         if period_pe_data.empty:
             error_msg = f"No PE data in {years}-year period for {asset_name}. Data range: {pe_data.index.min()} to {pe_data.index.max()}"
             LOG.error(error_msg)
             raise ValueError(error_msg)
         
+        # Determine which P/E column to use
         if 'pe_ratio' in period_pe_data.columns:
             pe_col = 'pe_ratio'
             pe_type = 'PE'
@@ -58,6 +67,7 @@ def calculate_pe_percentile(asset_name, pe_cache, current_date, years=10):
                 LOG.error(error_msg)
                 raise ValueError(error_msg)
         
+        # Get valid P/E data for the period
         valid_pe_data = period_pe_data[pe_col].dropna()
         valid_pe_data = valid_pe_data[(valid_pe_data > 0) & (valid_pe_data < 200)]
         
@@ -66,13 +76,23 @@ def calculate_pe_percentile(asset_name, pe_cache, current_date, years=10):
             LOG.error(error_msg)
             raise ValueError(error_msg)
             
-        current_pe = valid_pe_data.iloc[-1]
+        # Get the most recent P/E value (for monthly data, this is the latest available month)
+        most_recent_pe_data = available_data_up_to_date[pe_col].dropna()
+        if most_recent_pe_data.empty:
+            error_msg = f"No recent {pe_type} data available for {asset_name}"
+            LOG.error(error_msg)
+            raise ValueError(error_msg)
+            
+        current_pe = most_recent_pe_data.iloc[-1]
+        most_recent_date = most_recent_pe_data.index[-1]
         
+        # Calculate percentile based on historical period data
         percentile = (valid_pe_data <= current_pe).mean()
         
+        # Clamp percentile to reasonable bounds
         percentile = min(max(percentile, 0.1), 0.9)
         
-        LOG.info(f"{asset_name} - Current {pe_type}: {current_pe:.2f}, Percentile: {percentile:.2%}")
+        LOG.info(f"{asset_name} - Current {pe_type}: {current_pe:.2f} (as of {most_recent_date.date()}), Percentile: {percentile:.2%} (vs {years}Y history)")
         return percentile
         
     except Exception as e:

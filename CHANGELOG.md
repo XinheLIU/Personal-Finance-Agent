@@ -5,6 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2025-01-30
+
+### Added
+
+- **Manual P/E Data Integration:** Introduced support for user-downloaded manual P/E files from authoritative sources (HSI, HSTECH, S&P 500, NASDAQ 100).
+- **P/E Data Fill-to-Recent:** Implemented automatic gap filling from manual historical data to current dates using Yahoo Finance and price-based fallback methods.
+- **Multi-Format P/E Processing:** Added robust parsing for different manual file formats including various date formats ("Dec 2021", "2025/03/01", "2024/12/31") and column structures.
+- **P/E Test Suite:** Created comprehensive test suite in `src/test/` including unit tests (`test_pe_data_download.py`) and interactive demo (`demo_pe_data_flow.py`).
+- **HSI Asset Support:** Added Hang Seng Index (HSI) as a new tracked asset alongside HSTECH for better Hong Kong market coverage.
+
+### Changed
+
+- **P/E Data Architecture:** Replaced inferred P/E ratios (price-based estimates) with accurate historical P/E data from manual downloads plus akshare API.
+- **Strategy Asset Mix:** Updated allocation weights to CSI300 (15%), CSI500 (15%), HSI (10%), HSTECH (10%) for improved diversification.
+- **Monthly P/E Handling:** Enhanced `calculate_pe_percentile()` function to properly handle monthly P/E data frequency vs daily price data.
+- **Data Configuration:** Updated `PE_ASSETS` configuration to support `manual_file` patterns and akshare symbols for different data sources.
+- **P/E Data Loading:** Modified `load_pe_data()` to detect data frequency (monthly vs daily) and provide appropriate logging.
+
+### Fixed
+
+- **P/E Accuracy:** Eliminated assumption that earnings remain constant over time, replacing it with actual historical P/E ratios.
+- **Date Handling:** Improved timezone-naive datetime handling for consistent P/E data processing across different sources.
+- **Missing Data Graceful Handling:** Added smart gap detection (only fills if manual data >2 months old) and detailed error messages for missing files.
+
+### Technical Details
+
+- **New Functions:** `process_manual_pe_file()`, `fill_pe_data_to_recent()`, `get_recent_pe_from_yfinance()`, `estimate_recent_pe_from_price()`
+- **File Requirements:** Users must download 4 manual P/E files and place in `data/pe/` or project root
+- **Fallback Strategy:** Yahoo Finance → Price-based estimation → Detailed logging throughout
+- **Test Coverage:** Complete test suite with edge case handling and interactive demonstrations
+
 ## [0.2.0] - 2025-07-31
 
 ### Added

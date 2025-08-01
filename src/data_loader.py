@@ -105,6 +105,7 @@ def load_market_data():
 def load_pe_data():
     """
     Load PE (Price-to-Earnings) ratio data from CSV files.
+    Note: P/E data is monthly for manual downloads, daily for akshare downloads.
     """
     pe_cache = {}
     data_dir = os.path.join('data', 'pe')
@@ -119,15 +120,32 @@ def load_pe_data():
                 filepath = os.path.join(data_dir, pe_file)
                 pe_df = pd.read_csv(filepath)
                 
+                # Standardize date column handling
                 if 'date' in pe_df.columns:
-                    pe_df['date'] = pd.to_datetime(pe_df['date'], utc=True).dt.tz_localize(None)
+                    pe_df['date'] = pd.to_datetime(pe_df['date'])
                     pe_df.set_index('date', inplace=True)
                 elif '日期' in pe_df.columns:
                     pe_df['日期'] = pd.to_datetime(pe_df['日期'])
                     pe_df.set_index('日期', inplace=True)
                 
+                # Ensure timezone-naive datetime for consistency
+                if pe_df.index.tz is not None:
+                    pe_df.index = pe_df.index.tz_localize(None)
+                
+                # Sort by date
+                pe_df = pe_df.sort_index()
+                
+                # Log data frequency info
+                if len(pe_df) > 1:
+                    date_diff = pe_df.index[1] - pe_df.index[0]
+                    if date_diff.days > 20:  # Assume monthly if > 20 days between points
+                        LOG.info(f"Loaded {asset} PE data: {len(pe_df)} monthly records from {filepath}")
+                    else:
+                        LOG.info(f"Loaded {asset} PE data: {len(pe_df)} daily records from {filepath}")
+                else:
+                    LOG.info(f"Loaded {asset} PE data: {len(pe_df)} records from {filepath}")
+                
                 pe_cache[asset] = pe_df
-                LOG.info(f"Loaded {asset} PE data: {len(pe_df)} records from {filepath}")
             else:
                 raise FileNotFoundError(f"PE data file not found for {asset} in {data_dir}")
                 

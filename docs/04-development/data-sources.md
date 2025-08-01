@@ -1,6 +1,301 @@
-# 个人量化交易数据源与API指南
+# Data Sources
 
-**核心结论**：量化投资者在获取**行情数据**（价格、成交量）和**基本面数据**（PE、PB、财务指标）时，应结合**免费API**和**付费服务**，按**资产类别**（股票、债券）和**市场范围**（国内、国际）进行选择。
+## Complete Data Acquisition System Overview
+
+Our system uses a multi-source data acquisition strategy optimized for accuracy and reliability:
+
+```
+Manual Downloads (PE) + API Downloads (Price/Yield) → Standardization → Fill-to-Recent → Strategy
+```
+
+### Data Flow Architecture
+
+1. **Manual P/E Downloads** → Authoritative historical data (monthly)
+2. **API P/E Downloads** → Real-time data (daily) via AkShare  
+3. **API Price Downloads** → Real-time price data via AkShare + Yahoo Finance
+4. **API Yield Downloads** → Treasury yield data via FRED + Yahoo Finance fallback
+5. **Fill-to-Recent** → Bridge historical to current using Yahoo Finance + price estimation
+6. **Standardization** → Uniform format for strategy calculations
+
+---
+
+## P/E Ratio Data (Enhanced System)
+
+### Architecture: Manual + API + Fill-to-Recent
+
+Our P/E data system combines **manual downloads** for historical accuracy with **API downloads** for real-time data, plus **automatic gap filling** to recent dates.
+
+#### **Step 1: Manual Downloads (Historical Foundation)**
+
+| Asset | Source | File Pattern | Format | Frequency |
+|-------|--------|-------------|---------|-----------|
+| **HSI** | [HSI.com.hk](https://www.hsi.com.hk/index360/schi) | `HSI-hist-PE-ratio-*.(xlsx\|csv)` | Date, Value | Monthly |
+| **HSTECH** | [HSI.com.hk](https://www.hsi.com.hk/index360/schi) | `HS-Tech-hist-PE-ratio-*.(xlsx\|csv)` | Date, Value | Monthly |
+| **S&P 500** | [Macrotrends](https://www.macrotrends.net/2577/sp-500-pe-ratio-price-to-earnings-chart) | `SPX-historical-PE-ratio-*.(xlsx\|csv)` | Date, Value | Monthly |
+| **NASDAQ100** | [Macrotrends](https://www.macrotrends.net/stocks/charts/NDAQ/nasdaq/pe-ratio) | `NASDAQ-historical-PE-ratio-*.(xlsx\|csv)` | Date, Price, PE Ratio | Monthly |
+
+**Manual File Details:**
+- **Location**: Place in `data/pe/` or project root
+- **File Formats**: Supports both Excel (.xlsx) and CSV (.csv) files
+- **Date Formats**: 
+  - HSI/HSTECH: "Dec 2021" (converted to 2021-12-31)
+  - S&P 500: "2025/03/01" (converted to 2025-03-31)  
+  - NASDAQ100: "2024/12/31" (already end of month)
+- **Processing**: `process_manual_pe_file()` standardizes all formats and file types
+
+#### **Step 2: API Downloads (Real-time Data)**
+
+**Chinese Indices** (via AkShare):
+```python
+# CSI300 P/E Data
+    import akshare as ak
+df = ak.stock_index_pe_lg()  # 沪深300静态市盈率
+pe_column = df['静态市盈率']
+
+# CSI500 P/E Data  
+df = ak.stock_market_pe_lg()  # 中证500平均市盈率
+pe_column = df['平均市盈率']
+```
+
+**International Indices**: Use manual downloads (more accurate than API estimates)
+
+#### **Step 3: Fill-to-Recent (Gap Bridging)**
+
+Automatically fills gaps from manual data to current date using 2-step fallback:
+
+```python
+def fill_pe_data_to_recent(pe_df, asset_name):
+    # Step 1: Try Yahoo Finance for current P/E
+    recent_data = get_recent_pe_from_yfinance(ticker)
+    
+    # Step 2: If Yahoo fails, use price + earnings assumption
+    if recent_data is None:
+        recent_data = estimate_recent_pe_from_price(asset_name, ticker, pe_df)
+    
+    # Combine historical + recent
+    return pd.concat([pe_df, recent_data])
+```
+
+**Fallback Method 1 - Yahoo Finance:**
+- Gets `trailingPE` from ticker info
+- Creates current data point with today's date
+- Works well for major indices (^GSPC, ^NDX, ^HSI)
+
+**Fallback Method 2 - Price-based Estimation:**
+- Uses recent price data + latest manual P/E as baseline
+- Formula: `PE_new = PE_baseline × (Price_new / Price_baseline)`
+- Assumes earnings unchanged (documented limitation)
+- Provides detailed logging of estimation process
+
+---
+
+## Stock Price Data
+
+### Primary: AkShare (Chinese Assets)
+
+```python
+# Index Data
+df = ak.index_zh_a_hist(symbol="000300", period="daily", start_date="20040101")
+
+# ETF Data  
+df = ak.fund_etf_hist_em(symbol="159742", period="daily", start_date="20040101")
+```
+
+**Assets via AkShare:**
+- CSI300 (000300), CSI500 (000905) - Index data
+- HSTECH (159742) - ETF data from AkShare
+
+### Fallback: Yahoo Finance
+
+```python
+import yfinance as yf
+df = yf.download("^GSPC", start='2004-01-01')  # S&P 500
+df = yf.download("^NDX", start='2004-01-01')   # NASDAQ 100
+df = yf.download("^HSI", start='2004-01-01')   # Hang Seng Index
+df = yf.download("TLT", start='2004-01-01')    # Bond ETF
+df = yf.download("GLD", start='2004-01-01')    # Gold ETF
+```
+
+**Assets via Yahoo Finance:**
+- HSI (^HSI), SP500 (^GSPC), NASDAQ100 (^NDX) - Index data
+- TLT, GLD, CASH (CASHX) - ETF/Fund data
+
+### Data Processing Pipeline
+
+1. **Primary Source Attempt**: Try AkShare first
+2. **Fallback**: Use Yahoo Finance if AkShare fails
+3. **Standardization**: Convert to common format (`date`, `close`)
+4. **Cleaning**: Remove invalid values, handle timezone issues
+5. **Storage**: Save as `ASSET_YYYYMMDD_to_YYYYMMDD.csv`
+
+---
+
+## US Treasury Yield Data
+
+### Primary: FRED API
+
+```python
+import requests
+from dotenv import load_dotenv
+
+# Get US 10-Year Treasury Rate
+url = "https://api.stlouisfed.org/fred/series/observations"
+params = {
+    "series_id": "DGS10",  # 10-Year Treasury Constant Maturity Rate
+    "api_key": os.getenv('FRED_API_KEY'),
+    "file_type": "json",
+    "observation_start": "2004-01-01"
+}
+```
+
+**FRED API Features:**
+- Clean percentage format (4.38% vs 4.373000144958496%)
+- Official Federal Reserve data
+- Daily updates, long historical coverage
+- Requires free API key from FRED
+
+### Fallback: Yahoo Finance
+
+```python
+import yfinance as yf
+df = yf.download("^TNX", start='2004-01-01')  # 10-Year Treasury Note Yield
+```
+
+**Fallback Process:**
+- Automatically tries Yahoo Finance if FRED fails
+- Converts 'close' column to 'yield' for consistency
+- Ensures data availability even if FRED API is down
+
+---
+
+## Technical Implementation Details
+
+### File Organization
+
+```
+data/
+├── pe/                    # P/E ratio data
+│   ├── HSI_YYYYMMDD_to_YYYYMMDD.csv
+│   ├── SP500_YYYYMMDD_to_YYYYMMDD.csv
+│   └── ...
+├── price/                 # Stock price data  
+│   ├── CSI300_YYYYMMDD_to_YYYYMMDD.csv
+│   ├── SP500_YYYYMMDD_to_YYYYMMDD.csv
+│   └── ...
+└── yield/                 # Treasury yield data
+    └── US10Y_YYYYMMDD_to_YYYYMMDD.csv
+```
+
+### Key Functions
+
+**Data Download Orchestration:**
+```python
+# Main entry point
+def main(refresh=False):
+    download_price_data()    # AkShare + Yahoo Finance
+    download_pe_data()       # Manual + AkShare + Fill-to-recent  
+    download_yield_data()    # FRED + Yahoo Finance fallback
+```
+
+**P/E Data Processing:**
+```python
+def download_pe_data(asset_name, akshare_symbol, manual_file_pattern):
+    # 1. Process manual file
+    pe_df = process_manual_pe_file(manual_file)
+    
+    # 2. Fill to recent date
+    pe_df = fill_pe_data_to_recent(pe_df, asset_name)
+    
+    # 3. Save standardized result
+    pe_df.to_csv(output_path)
+```
+
+**Multi-source Fallback:**
+```python
+def download_asset_data(asset_name, akshare_symbol, yfinance_ticker):
+    # Try AkShare first
+    if akshare_symbol:
+        data = download_akshare_index(akshare_symbol)
+        if data: return data
+    
+    # Fallback to Yahoo Finance
+    if yfinance_ticker:
+        data = download_yfinance_data(yfinance_ticker)
+        if data: return data
+    
+    # Raise error if all sources fail
+    raise ValueError(f"Failed to download {asset_name} from all sources")
+```
+
+### Error Handling & Logging
+
+**Comprehensive Logging:**
+- Source attempt logs (AkShare → Yahoo Finance)
+- Data processing logs (standardization, cleaning)
+- Fill-to-recent process logs (Yahoo PE → Price estimation)
+- File save confirmations with date ranges
+
+**Graceful Degradation:**
+- If manual P/E file missing → Clear error message with download instructions
+- If Yahoo Finance fails → Automatic fallback to price-based estimation
+- If FRED fails → Automatic fallback to Yahoo Finance yield data
+- If data too old → Automatic gap filling with detailed logging
+
+### Data Quality Assurance
+
+**Validation Checks:**
+- Date format consistency across sources
+- P/E ratio bounds (0 < PE < 200)
+- Yield data bounds (0 < yield < 20%)
+- Price data positivity and continuity
+
+**Multi-source Verification:**
+- Cross-reference manual P/E with Yahoo Finance estimates
+- Compare FRED vs Yahoo Finance yield data
+- Log discrepancies for manual review
+
+---
+
+## Usage Examples
+
+### Download All Data
+```bash
+# Download/refresh all data sources
+python src/data_download.py --refresh
+
+# Download only missing data
+python src/data_download.py
+```
+
+### Run Tests
+```bash
+# Test P/E data processing
+python src/test/test_pe_data_download.py
+
+# Interactive demo of complete flow
+python src/test/demo_pe_data_flow.py
+```
+
+### Manual File Setup
+1. Download required P/E files from sources listed above
+2. Place in `data/pe/` directory or project root with correct naming:
+   - HSI: `HSI-hist-PE-ratio-*.xlsx` (note: "hist" not "historical")
+   - HSTECH: `HS-Tech-hist-PE-ratio-*.xlsx` (note: "hist" not "historical")
+   - S&P 500: `SPX-historical-PE-ratio-*.xlsx`
+   - NASDAQ100: `NASDAQ-historical-PE-ratio-*.xlsx`
+3. Files can be either Excel (.xlsx) or CSV (.csv) format
+4. Run data download to process and fill to recent date
+5. Check logs for successful processing confirmation
+
+---
+
+
+
+
+
+
+# Data Source References
+
 
 ## 一、数据源选择策略
 
