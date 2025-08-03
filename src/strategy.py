@@ -260,29 +260,37 @@ class BuyAndHoldStrategy(bt.Strategy):
         self.portfolio_values = []
         self.portfolio_dates = []
         self.shares_bought = 0
+        
+        # Use SP500 data feed (index 4 based on alphabetical order)
+        if len(self.datas) > 4:
+            self.data_feed = self.datas[4]  # SP500 should be at index 4
+        else:
+            self.data_feed = self.datas[0]
 
     def next(self):
-        current_price = self.datas[0].close[0]
-        portfolio_value = self.shares_bought * current_price + self.broker.get_cash()
+        # Calculate portfolio value explicitly: cash + position value
+        current_price = self.data_feed.close[0]
+        position = self.getposition(self.data_feed)
+        position_value = position.size * current_price if position.size > 0 else 0
+        cash = self.broker.get_cash()
+        portfolio_value = cash + position_value
+        
         self.portfolio_values.append(portfolio_value)
-        self.portfolio_dates.append(self.datas[0].datetime.date(0))
+        self.portfolio_dates.append(self.data_feed.datetime.date(0))
         
         if not self.bought:
-            cash = self.broker.get_cash()
-            price = self.datas[0].close[0]
-            if price > 0:
-                shares = int(cash / price)
+            if current_price > 0:
+                shares = int(cash / current_price)
                 if shares > 0:
-                    self.buy(data=self.datas[0], size=shares)
+                    self.buy(data=self.data_feed, size=shares)
                     self.shares_bought = shares
-                    LOG.info(f"Buy and Hold: Bought {shares} shares at ${price:.2f}")
-                    LOG.info(f"Buy and Hold: Initial investment: ${shares * price:,.2f}")
+                    LOG.info(f"Buy and Hold: Bought {shares} shares at ${current_price:.2f}")
+                    LOG.info(f"Buy and Hold: Initial investment: ${shares * current_price:,.2f}")
                 else:
-                    LOG.warning(f"Buy and Hold: Not enough cash to buy shares. Cash: ${cash:.2f}, Price: ${price:.2f}")
+                    LOG.warning(f"Buy and Hold: Not enough cash to buy shares. Cash: ${cash:.2f}, Price: ${current_price:.2f}")
             else:
-                LOG.error(f"Buy and Hold: Invalid price: {price}")
+                LOG.error(f"Buy and Hold: Invalid price: {current_price}")
             self.bought = True
         
         if len(self) % 1000 == 0:
-            current_value = self.shares_bought * current_price + self.broker.get_cash()
-            LOG.info(f"Buy and Hold Day {len(self)}: Price=${current_price:.2f}, Shares={self.shares_bought}, Value=${current_value:,.2f}")
+            LOG.info(f"Buy and Hold Day {len(self)}: Price=${current_price:.2f}, Shares={self.shares_bought}, Value=${portfolio_value:,.2f}")

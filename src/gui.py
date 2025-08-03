@@ -14,21 +14,20 @@ from src.cache import TARGET_WEIGHTS_CACHE
 import pandas as pd
 import json
 import os
-from src.data_download import main as download_data_main
+from src.data_download import main as download_data_main, get_data_range_info
 from src.app_logger import LOG
 
 def get_strategy_weights(strategy_name):
-    strategy_map = {
-        "60/40 Portfolio": SixtyFortyStrategy,
-        "Permanent Portfolio": PermanentPortfolioStrategy,
-        "All Weather Portfolio": AllWeatherPortfolioStrategy,
-        "David Swensen Portfolio": DavidSwensenPortfolioStrategy,
+    # Define target weights for each strategy without instantiating the class
+    strategy_weights = {
+        "60/40 Portfolio": {'SP500': 0.60, 'TLT': 0.40},
+        "Permanent Portfolio": {'SP500': 0.25, 'TLT': 0.25, 'CASH': 0.25, 'GLD': 0.25},
+        "All Weather Portfolio": {'SP500': 0.30, 'TLT': 0.55, 'GLD': 0.15},
+        "David Swensen Portfolio": {'SP500': 0.65, 'CSI300': 0.05, 'TLT': 0.30},
     }
-    if strategy_name in strategy_map:
-        strategy_class = strategy_map[strategy_name]
-        # Initialize the strategy to get the target weights
-        strategy_instance = strategy_class()
-        return strategy_instance.p.target_weights
+    
+    if strategy_name in strategy_weights:
+        return strategy_weights[strategy_name]
     elif strategy_name == "Dynamic Allocation":
         # For dynamic strategy, we can show the latest cached weights
         return TARGET_WEIGHTS_CACHE.get('weights', {})
