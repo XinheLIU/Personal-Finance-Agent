@@ -5,7 +5,47 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.3.0] - 2025-08-01
+## [0.3.1] - 2025-08-07
+
+### Major Architecture Refactoring
+
+#### Strategy Framework Overhaul
+- **Created modular strategy architecture** with base classes and inheritance
+- **Added `src/strategies/` directory structure** with base classes, built-in strategies, and custom strategy support
+- **Added StrategyRegistry**: Centralized strategy management system
+
+#### Built-in Strategies Added
+- **Static Allocation Strategies**: 60/40, Permanent Portfolio, All Weather, David Swensen, Buy & Hold, Equal Weight
+- **Dynamic Strategies**: PE-based Dynamic Allocation, Momentum, Risk Parity
+
+#### Command Line Interface
+- **New CLI module**: `src/cli.py` with comprehensive command-line interface
+- **Command options**: list strategies, run specific strategy, download data, show weights
+
+#### GUI Enhancements
+- **Dynamic strategy selection** from registry
+- **Custom strategy creation** tab for user-defined strategies
+- **Data management** and gap analysis features
+- **Real-time strategy details** display
+
+#### User Strategy Creation
+- **StrategyBuilder utility** with JSON-based storage
+- **GUI interface** for interactive weight assignment
+- **Real-time backtesting** of custom strategies
+
+### Files Added
+- `src/strategies/` directory with base classes, built-in strategies, and custom strategy utilities
+- `src/cli.py` command-line interface
+
+### Files Modified
+- `src/main.py`: Refactored for GUI/CLI modes
+- `src/gui.py`: Updated for strategy registry integration
+- `src/strategy.py`: Refactored to use new architecture
+- `README.md`: Updated with CLI usage examples
+
+### Usage Examples
+
+## [0.3.0] - 2025-08-07
 
 ### Added
 

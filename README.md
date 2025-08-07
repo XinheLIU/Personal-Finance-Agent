@@ -37,7 +37,7 @@ Downloads historical price and PE data for all assets with smart caching.
 
 ### 3. Launch Application
 
-**GUI Mode:**
+**GUI Mode (Default):**
 ```bash
 python -m src.main --mode gui
 ```
@@ -45,9 +45,25 @@ This launches the interactive GUI in your browser for easy backtesting and portf
 
 **Command-Line Mode:**
 ```bash
-python -m src.main --mode cli
+# List all strategies
+python -m src.main --list-strategies
+
+# Run specific strategy
+python -m src.main --strategy SixtyFortyStrategy
+
+# Download data
+python -m src.main --download-data
+
+# Run CLI interface
+python -m src.cli
 ```
-This runs all available backtesting strategies and prints the results to the console.
+
+**CLI Mode with Options:**
+```bash
+python -m src.cli list               # List all strategies
+python -m src.cli run SixtyFortyStrategy  # Run specific strategy
+python -m src.cli download --refresh      # Refresh all data
+```
 
 ### 4. View Results
 - **GUI**: Interactive performance charts and portfolio comparison tables
@@ -60,12 +76,15 @@ This runs all available backtesting strategies and prints the results to the con
 ```
 Personal-Finance-Agent/
 ├── src/                    # Core framework
-│   ├── main.py            # Launch GUI application or CLI backtests
+│   ├── main.py            # Entry point (GUI/CLI modes)
+│   ├── cli.py             # Command-line interface
 │   ├── gui.py             # Gradio web interface
-│   ├── strategy.py        # Strategy implementations
-│   ├── analytics.py       # CSV reports and analysis
-│   ├── config.py          # Configuration
+│   ├── strategies/        # Strategy architecture
+│   │   ├── base.py        # Base strategy classes
+│   │   ├── builtin/       # Built-in strategies
+│   │   └── custom/        # User-defined strategies
 │   ├── data_download.py   # Smart data management
+│   ├── backtest_runner.py # Backtesting engine
 │   └── ...               # Other modules
 ├── tests/                 # Unit tests
 ├── data/                  # Historical data (auto-generated)

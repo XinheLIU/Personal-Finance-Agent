@@ -1,15 +1,8 @@
 import gradio as gr
 from src.config import DYNAMIC_STRATEGY_PARAMS, INITIAL_CAPITAL, COMMISSION, ASSET_DISPLAY_INFO, TRADABLE_ASSETS
-from src.main import run_backtest
-from src.strategy import (
-    DynamicAllocationStrategy, 
-    get_target_weights_and_metrics_standalone, 
-    FixedWeightStrategy,
-    SixtyFortyStrategy,
-    PermanentPortfolioStrategy,
-    AllWeatherPortfolioStrategy,
-    DavidSwensenPortfolioStrategy
-)
+from src.backtest_runner import run_backtest
+from src.strategies.registry import strategy_registry
+from src.strategies.custom.user_strategy import StrategyBuilder
 from src.cache import TARGET_WEIGHTS_CACHE
 import pandas as pd
 import json
@@ -18,19 +11,27 @@ from src.data_download import main as download_data_main, get_data_range_info
 from src.app_logger import LOG
 
 def get_strategy_weights(strategy_name):
-    # Define target weights for each strategy without instantiating the class
-    strategy_weights = {
-        "60/40 Portfolio": {'SP500': 0.60, 'TLT': 0.40},
-        "Permanent Portfolio": {'SP500': 0.25, 'TLT': 0.25, 'CASH': 0.25, 'GLD': 0.25},
-        "All Weather Portfolio": {'SP500': 0.30, 'TLT': 0.55, 'GLD': 0.15},
-        "David Swensen Portfolio": {'SP500': 0.65, 'CSI300': 0.05, 'TLT': 0.30},
-    }
+    """Get strategy weights based on name"""
+    if strategy_name == "DynamicAllocationStrategy":
+        # Calculate fresh weights for dynamic strategy
+        try:
+            from src.strategy import get_target_weights_and_metrics_standalone
+            weights, _ = get_target_weights_and_metrics_standalone()
+            return weights
+        except:
+            return {}
     
-    if strategy_name in strategy_weights:
-        return strategy_weights[strategy_name]
-    elif strategy_name == "Dynamic Allocation":
-        # For dynamic strategy, we can show the latest cached weights
-        return TARGET_WEIGHTS_CACHE.get('weights', {})
+    # For static strategies, get weights from the strategy class
+    strategy_class = strategy_registry.get(strategy_name)
+    if strategy_class:
+        try:
+            # Create a temporary instance to get weights
+            temp_instance = strategy_class()
+            weights = temp_instance.get_target_weights()
+            return weights
+        except:
+            pass
+    
     return {}
 
 HOLDINGS_FILE = "data/holdings.json"
@@ -42,13 +43,13 @@ def run_backtest_interface(strategy_choice, rebalance_days, threshold, initial_c
     DYNAMIC_STRATEGY_PARAMS['rebalance_days'] = rebalance_days
     DYNAMIC_STRATEGY_PARAMS['threshold'] = threshold
 
-    strategy_map = {
-        "Dynamic Allocation": DynamicAllocationStrategy,
-        "60/40 Portfolio": SixtyFortyStrategy,
-        "Permanent Portfolio": PermanentPortfolioStrategy,
-        "All Weather Portfolio": AllWeatherPortfolioStrategy,
-        "David Swensen Portfolio": DavidSwensenPortfolioStrategy,
-    }
+    strategy_class = strategy_registry.get(strategy_choice)
+    if not strategy_class:
+        error_df = pd.DataFrame({
+            "Metric": ["Error"],
+            "Value": [f"Strategy '{strategy_choice}' not found"]
+        })
+        return error_df, pd.DataFrame()
 
     if strategy_choice == "Custom Fixed Weight":
         try:
@@ -97,10 +98,15 @@ def get_portfolio_and_comparison_data():
         reasoning = TARGET_WEIGHTS_CACHE.get('reasoning', {})
         
         if not target_weights:
-            from src.main import pre_calculate_target_weights
-            pre_calculate_target_weights()
-            target_weights = TARGET_WEIGHTS_CACHE.get('weights', {})
-            reasoning = TARGET_WEIGHTS_CACHE.get('reasoning', {})
+            try:
+                from src.strategy import get_target_weights_and_metrics_standalone
+                weights, reasoning = get_target_weights_and_metrics_standalone()
+                if weights:
+                    TARGET_WEIGHTS_CACHE['weights'] = weights
+                    TARGET_WEIGHTS_CACHE['reasoning'] = reasoning
+                    target_weights = weights
+            except Exception as e:
+                LOG.error(f"Error calculating target weights: {e}")
 
         if not target_weights:
             return pd.DataFrame({"Message": ["Target weights not available. Check logs."]}), pd.DataFrame()
@@ -236,10 +242,14 @@ with gr.Blocks() as demo:
         with gr.Row():
             with gr.Column():
                 gr.Markdown("## Strategy Selection")
+                # Get all available strategies
+                strategies = strategy_registry.list_strategies()
+                strategy_names = list(strategies.keys()) + ["Custom Fixed Weight"]
+                
                 strategy_choice = gr.Dropdown(
-                    ["Dynamic Allocation", "60/40 Portfolio", "Permanent Portfolio", "All Weather Portfolio", "David Swensen Portfolio", "Custom Fixed Weight"],
+                    strategy_names,
                     label="Strategy",
-                    value="Dynamic Allocation"
+                    value="DynamicAllocationStrategy"
                 )
                 
                 gr.Markdown("## Strategy Details")
