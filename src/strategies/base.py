@@ -3,10 +3,10 @@ Base strategy classes for Personal Finance Agent.
 Provides foundation for all strategy implementations.
 """
 import backtrader as bt
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 from typing import Dict, Any, Optional
 
-class BaseStrategy(bt.Strategy, ABC):
+class BaseStrategy(bt.Strategy):
     """
     Abstract base class for all investment strategies.
     Provides common functionality and interface for strategy implementations.
@@ -157,3 +157,18 @@ class DynamicStrategy(BaseStrategy):
             if abs(current - target) > self.params.threshold:
                 return True
         return False
+
+class FixedWeightStrategy(StaticAllocationStrategy):
+    """
+    Fixed weight strategy for custom allocations.
+    Allows setting target weights via parameters.
+    """
+    params = (
+        ('rebalance_days', 30),
+        ('threshold', 0.05),
+        ('target_weights', {}),
+    )
+    
+    def get_target_weights(self) -> Dict[str, float]:
+        """Return the fixed target weights"""
+        return self.params.target_weights

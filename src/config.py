@@ -13,9 +13,16 @@ TRADABLE_ASSETS = {
     'HSTECH': {'akshare': '159742', 'yfinance': 'KTEC'},  # Hang Seng Tech ETF (CN: 159742, US: KTEC)
     'SP500': {'akshare': None, 'yfinance': 'VOO'},        # S&P 500 ETF (Vanguard VOO)
     'NASDAQ100': {'akshare': None, 'yfinance': 'QQQ'},    # NASDAQ 100 ETF (Invesco QQQ)
-    'TLT': {'akshare': None, 'yfinance': 'TLT'},          # US Treasury Bond ETF
+    'TLT': {'akshare': None, 'yfinance': 'TLT'},          # US Treasury Bond ETF (Long-term)
     'GLD': {'akshare': None, 'yfinance': 'GLD'},          # Gold ETF
     'CASH': {'akshare': None, 'yfinance': 'SHV'},         # Short-term Treasury ETF (cash equivalent)
+    'DBC': {'akshare': None, 'yfinance': 'DBC'},          # Commodity ETF (broad commodities)
+    'VEA': {'akshare': None, 'yfinance': 'VEA'},          # Developed International Markets ETF
+    'VWO': {'akshare': None, 'yfinance': 'VWO'},          # Emerging Markets ETF
+    'VNQ': {'akshare': None, 'yfinance': 'VNQ'},          # Real Estate ETF (REITs)
+    'TIP': {'akshare': None, 'yfinance': 'TIP'},          # Treasury Inflation-Protected Securities ETF
+    'IEF': {'akshare': None, 'yfinance': 'IEF'},          # Intermediate-Term Treasury Bond ETF
+    'SHY': {'akshare': None, 'yfinance': 'SHY'},          # Short-Term Treasury Bond ETF (1-3 year)
 }
 
 # INDEX_ASSETS: Underlying indices used for fundamental analysis (PE ratios, etc.)
@@ -93,6 +100,55 @@ ASSET_DISPLAY_INFO = {
         'tradable_cn': None,
         'tradable_us': 'SHV (ETF)',
         'region': 'Cash/Money Market'
+    },
+    'DBC': {
+        'name': 'Commodities',
+        'index': 'Commodity Index',
+        'tradable_cn': None,
+        'tradable_us': 'DBC (ETF)',
+        'region': 'Commodities'
+    },
+    'VEA': {
+        'name': 'Developed International',
+        'index': 'FTSE Developed Markets',
+        'tradable_cn': None,
+        'tradable_us': 'VEA (ETF)',
+        'region': 'International Developed'
+    },
+    'VWO': {
+        'name': 'Emerging Markets',
+        'index': 'FTSE Emerging Markets',
+        'tradable_cn': None,
+        'tradable_us': 'VWO (ETF)',
+        'region': 'International Emerging'
+    },
+    'VNQ': {
+        'name': 'Real Estate',
+        'index': 'MSCI US REIT Index',
+        'tradable_cn': None,
+        'tradable_us': 'VNQ (ETF)',
+        'region': 'Real Estate'
+    },
+    'TIP': {
+        'name': 'TIPS Bonds',
+        'index': 'US TIPS Index',
+        'tradable_cn': None,
+        'tradable_us': 'TIP (ETF)',
+        'region': 'US Inflation-Protected Bonds'
+    },
+    'IEF': {
+        'name': 'Intermediate Treasury',
+        'index': 'US 7-10 Year Treasury',
+        'tradable_cn': None,
+        'tradable_us': 'IEF (ETF)',
+        'region': 'US Intermediate Bonds'
+    },
+    'SHY': {
+        'name': 'Short Treasury',
+        'index': 'US 1-3 Year Treasury',
+        'tradable_cn': None,
+        'tradable_us': 'SHY (ETF)',
+        'region': 'US Short-Term Bonds'
     }
 }
 
@@ -127,6 +183,13 @@ DATA_FILES = {
     'TLT': 'TLT',
     'GLD': 'GLD',
     'CASH': 'CASH',
+    'DBC': 'DBC',
+    'VEA': 'VEA',
+    'VWO': 'VWO',
+    'VNQ': 'VNQ',
+    'TIP': 'TIP',
+    'IEF': 'IEF',
+    'SHY': 'SHY',
     # US10Y data is handled separately in yield data
 }
 

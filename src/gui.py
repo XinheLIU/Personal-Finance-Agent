@@ -3,6 +3,7 @@ from src.config import DYNAMIC_STRATEGY_PARAMS, INITIAL_CAPITAL, COMMISSION, ASS
 from src.backtest_runner import run_backtest
 from src.strategies.registry import strategy_registry
 from src.strategies.custom.user_strategy import StrategyBuilder
+from src.strategies.base import FixedWeightStrategy
 from src.cache import TARGET_WEIGHTS_CACHE
 import pandas as pd
 import json
@@ -66,10 +67,6 @@ def run_backtest_interface(strategy_choice, rebalance_days, threshold, initial_c
             strategy_class = CustomFixedStrategy
         except Exception as e:
             return pd.DataFrame({"Metric": ["Error"], "Value": [f"Invalid custom weights: {e}"]}), pd.DataFrame()
-    else:
-        strategy_class = strategy_map[strategy_choice]
-
-
     results = run_backtest(strategy_class, strategy_choice, start_date)
 
     if results:
@@ -77,10 +74,26 @@ def run_backtest_interface(strategy_choice, rebalance_days, threshold, initial_c
             "Metric": ["Final Value", "Total Return (%)", "Annualized Return (%)", "Max Drawdown (%)", "Sharpe Ratio"],
             "Value": [f"${results['final_value']:,.2f}", f"{results['total_return']:.2f}", f"{results['annualized_return']:.2f}", f"{results['max_drawdown']:.2f}", f"{results['sharpe_ratio']:.2f}"]
         })
-        portfolio_df = pd.DataFrame({
-            "Date": pd.to_datetime(results['portfolio_dates']),
-            "Value": [round(v, 2) for v in results['portfolio_values']]
-        })
+        # Build portfolio dataframe safely whether values are inline or file path
+        portfolio_df = pd.DataFrame()
+        if 'portfolio_dates' in results and 'portfolio_values' in results:
+            portfolio_df = pd.DataFrame({
+                "Date": pd.to_datetime(results['portfolio_dates']),
+                "Value": [round(float(v), 2) for v in results['portfolio_values']]
+            })
+        elif 'portfolio_values' in results and isinstance(results['portfolio_values'], str):
+            # Backward compatibility: older runs returned a CSV filepath
+            try:
+                df = pd.read_csv(results['portfolio_values'])
+                # Expect columns 'date' and 'portfolio_value'
+                if 'date' in df.columns and 'portfolio_value' in df.columns:
+                    portfolio_df = pd.DataFrame({
+                        "Date": pd.to_datetime(df['date']),
+                        "Value": [round(float(v), 2) for v in df['portfolio_value']]
+                    })
+            except Exception as e:
+                LOG.error(f"Failed to load portfolio values from file: {e}")
+                portfolio_df = pd.DataFrame()
         return summary_df, portfolio_df
     else:
         error_df = pd.DataFrame({

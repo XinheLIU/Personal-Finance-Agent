@@ -1,7 +1,7 @@
 
 import unittest
 import os
-from src.main import run_backtest
+from src.backtest_runner import run_backtest
 from src.strategy import (
     DynamicAllocationStrategy,
     BuyAndHoldStrategy,

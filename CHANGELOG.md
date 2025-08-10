@@ -141,6 +141,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Character Encoding:** Improved handling of international data sources with proper UTF-8 encoding.
 - **Data Validation:** Enhanced data cleaning to remove invalid PE values and handle mixed data source formats.
 
+## [0.2.2] - 2025-08-10
+
+### Fixed
+- **Metaclass Conflict**: Fixed `TypeError: metaclass conflict` in `src/strategies/base.py` by removing ABC inheritance from BaseStrategy
+- **Missing Dependencies**: Added `pytest` and `gradio` to requirements.txt  
+- **Missing Backtest Runner**: Created comprehensive `src/backtest_runner.py` module with proper error handling
+- **GUI Strategy Map Error**: Fixed `NameError: name 'strategy_map' is not defined` in src/gui.py
+- **Missing FixedWeightStrategy**: Added FixedWeightStrategy class to src/strategies/base.py for custom strategy creation
+- **NaN Portfolio Values**: Added robust handling for NaN values in backtest results using numpy
+- **File Path Issues**: Fixed directory creation and filename sanitization for strategies with special characters (like "60/40 Portfolio")
+- **Import Errors**: Fixed all import statements in test files and modules
+
+### Added
+- **FixedWeightStrategy**: New base strategy class for custom fixed-weight allocations
+- **Error Handling**: Comprehensive error handling for NaN values and file operations in backtest runner
+- **File Sanitization**: Automatic filename sanitization for strategy names with special characters
+- **Dependencies**: Added numpy for robust NaN handling
+
+### Changed
+- **BaseStrategy**: Removed ABC inheritance while preserving abstract method decorators
+- **Backtest Runner**: Enhanced with proper NaN handling and robust file operations
+- **GUI**: Fixed syntax error in else block and removed undefined strategy_map usage
+- **Test Framework**: Updated to use new backtest runner module
+
 ## [0.1.0] - 2025-07-22
 
 ### Added

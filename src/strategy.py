@@ -239,10 +239,8 @@ class PermanentPortfolioStrategy(FixedWeightStrategy):
 
 class AllWeatherPortfolioStrategy(FixedWeightStrategy):
     def __init__(self):
-        # 30% Stocks (S&P 500), 40% Long-Term Bonds (TLT), 15% Intermediate-Term Bonds (using TLT as proxy), 7.5% Gold, 7.5% Commodities (using GLD as proxy)
-        LOG.warning("Using TLT as a proxy for Intermediate-Term Bonds in AllWeatherPortfolioStrategy.")
-        LOG.warning("Using GLD as a proxy for a broad commodities basket in AllWeatherPortfolioStrategy.")
-        self.p.target_weights = {'SP500': 0.30, 'TLT': 0.55, 'GLD': 0.15}
+        # 30% Stocks (S&P 500), 40% Long-Term Bonds (TLT), 15% Intermediate-Term Bonds (IEF), 7.5% Gold (GLD), 7.5% Commodities (DBC)
+        self.p.target_weights = {'SP500': 0.30, 'TLT': 0.40, 'IEF': 0.15, 'GLD': 0.075, 'DBC': 0.075}
         super().__init__()
 
 class DavidSwensenPortfolioStrategy(FixedWeightStrategy):
@@ -260,37 +258,39 @@ class BuyAndHoldStrategy(bt.Strategy):
         self.portfolio_values = []
         self.portfolio_dates = []
         self.shares_bought = 0
-        
-        # Use SP500 data feed (index 4 based on alphabetical order)
-        if len(self.datas) > 4:
-            self.data_feed = self.datas[4]  # SP500 should be at index 4
-        else:
+        self.order = None
+
+        # Robustly select SP500 feed by name
+        self.data_feed = None
+        for data in self.datas:
+            if getattr(data, '_name', '') == 'SP500':
+                self.data_feed = data
+                break
+        if self.data_feed is None:
             self.data_feed = self.datas[0]
 
     def next(self):
-        # Calculate portfolio value explicitly: cash + position value
+        # Use broker's marked-to-market portfolio value for robustness
         current_price = self.data_feed.close[0]
-        position = self.getposition(self.data_feed)
-        position_value = position.size * current_price if position.size > 0 else 0
-        cash = self.broker.get_cash()
-        portfolio_value = cash + position_value
+        portfolio_value = self.broker.getvalue()
         
         self.portfolio_values.append(portfolio_value)
         self.portfolio_dates.append(self.data_feed.datetime.date(0))
         
         if not self.bought:
             if current_price > 0:
-                shares = int(cash / current_price)
-                if shares > 0:
-                    self.buy(data=self.data_feed, size=shares)
-                    self.shares_bought = shares
-                    LOG.info(f"Buy and Hold: Bought {shares} shares at ${current_price:.2f}")
-                    LOG.info(f"Buy and Hold: Initial investment: ${shares * current_price:,.2f}")
-                else:
-                    LOG.warning(f"Buy and Hold: Not enough cash to buy shares. Cash: ${cash:.2f}, Price: ${current_price:.2f}")
+                # Allocate nearly 100% to SP500 on first bar
+                self.order_target_percent(data=self.data_feed, target=0.999)
+                self.bought = True
             else:
                 LOG.error(f"Buy and Hold: Invalid price: {current_price}")
-            self.bought = True
         
         if len(self) % 1000 == 0:
             LOG.info(f"Buy and Hold Day {len(self)}: Price=${current_price:.2f}, Shares={self.shares_bought}, Value=${portfolio_value:,.2f}")
+
+    def notify_order(self, order):
+        if order.status in [order.Completed]:
+            if order.isbuy():
+                self.shares_bought = int(order.executed.size)
+                LOG.info(f"Buy and Hold: Bought {self.shares_bought} shares at ${order.executed.price:.2f}")
+                LOG.info(f"Buy and Hold: Initial investment: ${order.executed.size * order.executed.price:,.2f}")

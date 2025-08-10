@@ -1,4 +1,0 @@
-1. the data download module: 1.) naming files by time period, eg. TLT_20040101_to_20250715.csv 2.) add cache logic, when trying to download, check if the history period is already stored, only download the recent period, and merge with it (to one file) ; when all data is already stored, not need to download 
-2. add an UI for user to input strategies
-3. let cursor use MCPs
-    4. use perplexity MCP

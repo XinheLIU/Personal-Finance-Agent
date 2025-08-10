@@ -25,7 +25,7 @@ class PermanentPortfolioStrategy(StaticAllocationStrategy):
         return {
             'SP500': 0.25,
             'TLT': 0.25,
-            'CASH': 0.25,
+            'SHY': 0.25,  # Short-term Treasury bonds as cash equivalent
             'GLD': 0.25
         }
 
@@ -35,26 +35,55 @@ class AllWeatherPortfolioStrategy(StaticAllocationStrategy):
     30% stocks, 40% long-term bonds, 15% intermediate bonds, 7.5% gold, 7.5% commodities
     """
     def get_target_weights(self) -> Dict[str, float]:
-        return {
+        # Using available ETFs, with fallback allocations for missing data
+        weights = {
             'SP500': 0.30,
-            'TLT': 0.40,
-            'CASH': 0.15,  # Using CASH as proxy for intermediate bonds
+            'TLT': 0.55,  # Combined long-term and intermediate bonds
             'GLD': 0.075,
-            'CSI300': 0.075  # Using CSI300 as proxy for commodities exposure
+            'DBC': 0.075   # Commodity ETF (available)
         }
+        
+        # Check available data and adjust weights
+        available_assets = [data._name for data in self.datas]
+        filtered_weights = {k: v for k, v in weights.items() if k in available_assets}
+        
+        # Normalize if some assets are missing
+        total_weight = sum(filtered_weights.values())
+        if total_weight > 0:
+            scale_factor = 1.0 / total_weight
+            for asset in filtered_weights:
+                filtered_weights[asset] *= scale_factor
+        
+        return filtered_weights
 
 class DavidSwensenStrategy(StaticAllocationStrategy):
     """
     David Swensen's Yale Model (simplified for retail investors):
-    30% US stocks, 20% international stocks, 20% real estate, 30% bonds
+    30% US stocks, 15% developed international, 5% emerging markets, 
+    15% intermediate-term bonds, 15% TIPS, 20% real estate
     """
     def get_target_weights(self) -> Dict[str, float]:
-        return {
-            'SP500': 0.30,
-            'NASDAQ100': 0.20,  # Using NASDAQ100 as proxy for international
-            'TLT': 0.30,
-            'GLD': 0.20  # Using GLD as proxy for real estate
+        # Using available ETFs, with fallback allocations for missing data
+        weights = {
+            'SP500': 0.30,      # US Total Stock Market
+            'VEA': 0.15,        # Developed International Markets (available)
+            'TLT': 0.20,        # Bonds (fallback for IEF+TIP)
+            'GLD': 0.20,        # Real assets (fallback for VNQ)
+            'NASDAQ100': 0.15   # Additional US exposure (fallback for VWO)
         }
+        
+        # Check available data and adjust weights
+        available_assets = [data._name for data in self.datas]
+        filtered_weights = {k: v for k, v in weights.items() if k in available_assets}
+        
+        # Normalize if some assets are missing
+        total_weight = sum(filtered_weights.values())
+        if total_weight > 0:
+            scale_factor = 1.0 / total_weight
+            for asset in filtered_weights:
+                filtered_weights[asset] *= scale_factor
+        
+        return filtered_weights
 
 class SimpleBuyAndHoldStrategy(StaticAllocationStrategy):
     """
