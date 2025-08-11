@@ -7,8 +7,8 @@ import pandas as pd
 import numpy as np
 import os
 from src.app_logger import LOG
-from src.config import INITIAL_CAPITAL, COMMISSION, ASSETS
-from src.data_loader import load_market_data, load_data_feed
+from config import INITIAL_CAPITAL, COMMISSION, ASSETS
+from src.data_center.data_loader import load_market_data, load_data_feed
 
 def run_backtest(strategy_class, strategy_name, start_date=None, end_date=None, **kwargs):
     """
@@ -37,6 +37,11 @@ def run_backtest(strategy_class, strategy_name, start_date=None, end_date=None, 
         cerebro = bt.Cerebro()
         cerebro.broker.setcash(INITIAL_CAPITAL)
         cerebro.broker.setcommission(commission=COMMISSION)
+        # Ensure orders execute deterministically on the same bar when needed
+        try:
+            cerebro.broker.set_coc(True)
+        except Exception:
+            pass
         
         # Add data feeds using loader (ensures proper columns/mapping)
         earliest_start = None
@@ -93,7 +98,6 @@ def run_backtest(strategy_class, strategy_name, start_date=None, end_date=None, 
         strat = results[0]
         
         # Handle NaN values in final portfolio value
-        import numpy as np
         if np.isnan(final_value) or final_value <= 0:
             LOG.warning(f"Invalid final value: {final_value}. Using last valid portfolio value.")
             # Try to use the last valid portfolio value
@@ -152,7 +156,6 @@ def run_backtest(strategy_class, strategy_name, start_date=None, end_date=None, 
         
         # Save rebalancing log if available
         if hasattr(strat, 'rebalance_log') and strat.rebalance_log:
-            import pandas as pd
             log_df = pd.DataFrame(strat.rebalance_log)
             log_dir = 'analytics'
             os.makedirs(log_dir, exist_ok=True)
@@ -165,7 +168,6 @@ def run_backtest(strategy_class, strategy_name, start_date=None, end_date=None, 
         
         # Save portfolio values if available
         if hasattr(strat, 'portfolio_values') and strat.portfolio_values:
-            import pandas as pd
             # Filter out NaN values
             valid_data = [(d, v) for d, v in zip(strat.portfolio_dates, strat.portfolio_values)
                           if pd.notna(v) and v > 0]
@@ -195,3 +197,5 @@ def run_backtest(strategy_class, strategy_name, start_date=None, end_date=None, 
     except Exception as e:
         LOG.error(f"Error running backtest for {strategy_name}: {e}")
         return None
+
+

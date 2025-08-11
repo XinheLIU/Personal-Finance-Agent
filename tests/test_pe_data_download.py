@@ -19,11 +19,11 @@ import tempfile
 import shutil
 from datetime import datetime, timedelta
 
-# Add src to path to import modules
-sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+# Add src to path to import project modules
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'src')))
 
-from app_logger import LOG
-from data_download import (
+from src.app_logger import LOG
+from src.data_center.download import (
     process_manual_pe_file, 
     fill_pe_data_to_recent,
     get_recent_pe_from_yfinance,

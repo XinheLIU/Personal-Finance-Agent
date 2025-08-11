@@ -144,3 +144,5 @@ def get_current_yield(market_data, current_date):
     except Exception as e:
         LOG.warning(f"Error getting current yield, using default 4.0%: {e}")
         return 4.0
+
+

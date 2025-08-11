@@ -9,9 +9,9 @@ from typing import Dict, Any
 
 from src.app_logger import LOG
 from src.strategies.registry import strategy_registry
-from src.backtest_runner import run_backtest
-from src.data_download import main as download_data
-from src.strategy import get_target_weights_and_metrics_standalone
+from src.backtesting.runner import run_backtest
+from src.data_center.download import main as download_data
+from src.strategies.legacy import get_target_weights_and_metrics_standalone
 
 def list_strategies():
     """List all available strategies"""

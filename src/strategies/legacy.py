@@ -4,9 +4,13 @@ import numpy as np
 import os
 import akshare as ak
 from src.app_logger import LOG
-from src.config import DYNAMIC_STRATEGY_PARAMS, INDEX_ASSETS, TRADABLE_ASSETS
-from src.data_loader import load_market_data, load_pe_data
-from src.strategy_utils import calculate_pe_percentile, calculate_yield_percentile, get_current_yield
+from config import DYNAMIC_STRATEGY_PARAMS, INDEX_ASSETS, TRADABLE_ASSETS
+from src.data_center.data_loader import load_market_data, load_pe_data
+from src.strategies.utils import (
+    calculate_pe_percentile,
+    calculate_yield_percentile,
+    get_current_yield,
+)
 
 def calculate_target_weights_standalone(current_date, pe_cache, market_data):
     """
@@ -96,7 +100,7 @@ def get_target_weights_and_metrics_standalone():
                 reasoning[asset] = "N/A"
 
         return weights, reasoning
-
+    
     except Exception as e:
         LOG.error(f"Error getting target weights and metrics: {e}")
         return {}, {}
@@ -279,9 +283,14 @@ class BuyAndHoldStrategy(bt.Strategy):
         
         if not self.bought:
             if current_price > 0:
-                # Allocate nearly 100% to SP500 on first bar
-                self.order_target_percent(data=self.data_feed, target=0.999)
-                self.bought = True
+                # Market-in at first bar using cash-based sizing to ensure execution
+                available_cash = self.broker.getcash()
+                size = int(available_cash / current_price)
+                if size > 0:
+                    self.buy(data=self.data_feed, size=size)
+                    self.bought = True
+                else:
+                    LOG.warning("Buy and Hold: Not enough cash to buy any shares")
             else:
                 LOG.error(f"Buy and Hold: Invalid price: {current_price}")
         
@@ -294,3 +303,5 @@ class BuyAndHoldStrategy(bt.Strategy):
                 self.shares_bought = int(order.executed.size)
                 LOG.info(f"Buy and Hold: Bought {self.shares_bought} shares at ${order.executed.price:.2f}")
                 LOG.info(f"Buy and Hold: Initial investment: ${order.executed.size * order.executed.price:,.2f}")
+
+

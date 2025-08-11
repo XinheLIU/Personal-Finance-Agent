@@ -1,14 +1,14 @@
 import gradio as gr
-from src.config import DYNAMIC_STRATEGY_PARAMS, INITIAL_CAPITAL, COMMISSION, ASSET_DISPLAY_INFO, TRADABLE_ASSETS
-from src.backtest_runner import run_backtest
+from config import DYNAMIC_STRATEGY_PARAMS, INITIAL_CAPITAL, COMMISSION, ASSET_DISPLAY_INFO, TRADABLE_ASSETS
+from src.backtesting.runner import run_backtest
 from src.strategies.registry import strategy_registry
 from src.strategies.custom.user_strategy import StrategyBuilder
 from src.strategies.base import FixedWeightStrategy
-from src.cache import TARGET_WEIGHTS_CACHE
+
 import pandas as pd
 import json
 import os
-from src.data_download import main as download_data_main, get_data_range_info
+from src.data_center.download import main as download_data_main, get_data_range_info
 from src.app_logger import LOG
 
 def get_strategy_weights(strategy_name):
@@ -16,7 +16,7 @@ def get_strategy_weights(strategy_name):
     if strategy_name == "DynamicAllocationStrategy":
         # Calculate fresh weights for dynamic strategy
         try:
-            from src.strategy import get_target_weights_and_metrics_standalone
+            from src.strategies.legacy import get_target_weights_and_metrics_standalone
             weights, _ = get_target_weights_and_metrics_standalone()
             return weights
         except:
@@ -112,7 +112,7 @@ def get_portfolio_and_comparison_data():
         
         if not target_weights:
             try:
-                from src.strategy import get_target_weights_and_metrics_standalone
+                from src.strategies.legacy import get_target_weights_and_metrics_standalone
                 weights, reasoning = get_target_weights_and_metrics_standalone()
                 if weights:
                     TARGET_WEIGHTS_CACHE['weights'] = weights
@@ -423,7 +423,7 @@ with gr.Blocks() as demo:
                 download_status = gr.Textbox(label="Status", interactive=False)
 
                 def download_new_ticker(ticker):
-                    from src.data_download import download_yfinance_data, download_akshare_index
+                    from src.data_center.download import download_yfinance_data, download_akshare_index
                     
                     try:
                         # Try yfinance first

@@ -1,129 +1,190 @@
-# Personal Finance Agent - Multi-Asset Backtesting Framework
+# Personal Finance Agent
 
-A modular backtesting framework for testing custom asset allocation strategies across global markets (Chinese, US, Hong Kong). Features smart data management, professional visualization, and comprehensive testing.
+## System Architecture
 
-## What It Does
+### 🏗️ **Core Modules**
 
-- **Interactive GUI** with Gradio for easy backtesting and portfolio management
-- **Backtest portfolio strategies** with real historical data
-- **Smart data downloading** with automatic caching and fallbacks
-- **Professional analysis** with performance metrics and charts
-- **Detailed analytics** with CSV reports and rebalancing logs
-- **Easy customization** through modular architecture
+- **📊 Data Center**: Clean market data management with raw/processed separation
+- **🎯 Strategy Module**: Professional strategy repository with metadata and documentation  
+- **🔬 Backtesting Platform**: Historical testing with execution lag modeling and transaction costs
+- **📈 Performance Analysis**: Comprehensive metrics, attribution analysis, and reporting
+- **⚙️ Management Module**: System coordination, risk management, and strategy orchestration
+- **💼 Trading Module**: Order execution framework (simulation/paper/live modes)
 
-**Included Strategies:**
-- **Dynamic Allocation**: PE-based valuation strategy with yield considerations
-- **60/40 Portfolio**: A classic balanced portfolio.
-- **Permanent Portfolio**: Harry Browne's strategy for all economic conditions.
-- **All-Weather Portfolio**: Ray Dalio's strategy for weathering economic storms.
-- **David Swensen's Portfolio**: A diversified, equity-oriented portfolio.
-- **Buy & Hold**: Simple benchmark for comparison
+
+### 🚀 **Professional Features**
+
+- **Execution Lag Modeling**: Realistic T+1 execution delays
+- **Transaction Cost Analysis**: Commission and slippage modeling  
+- **Performance Attribution**: Sector and factor-based analysis
+- **Risk Management**: Drawdown analysis, VaR calculations, position limits
+- **Strategy Metadata**: Complete documentation and parameter tracking
+- **Real-time Health Monitoring**: System status and module diagnostics
 
 ## Quick Start
 
-### 1. Setup
+### 1. System Setup
 ```bash
-conda activate py-fin  # Use your conda environment
+# Clone and setup environment
 git clone <repo-url>
 cd Personal-Finance-Agent
+conda activate py-fin  # or your preferred environment
 pip install -r requirements.txt
+
+# Validate system configuration
+python -m src.main --validate
 ```
 
-### 2. Download Data
+### 2. System Initialization
 ```bash
-python -m src.data_download
-```
-Downloads historical price and PE data for all assets with smart caching.
+# Check system health and status
+python -m src.main --mode system --status
 
-### 3. Launch Application
-
-**GUI Mode (Default):**
-```bash
-python -m src.main --mode gui
-```
-This launches the interactive GUI in your browser for easy backtesting and portfolio management.
-
-**Command-Line Mode:**
-```bash
-# List all strategies
-python -m src.main --list-strategies
-
-# Run specific strategy
-python -m src.main --strategy SixtyFortyStrategy
-
-# Download data
+# Download market data (first-time setup)
 python -m src.main --download-data
 
-# Run CLI interface
-python -m src.cli
+# Initialize system (optional - done automatically)
+python -m src.main --mode system --startup
 ```
 
-**CLI Mode with Options:**
+### 3. Launch Interfaces
+
+**🌐 Web GUI (Recommended)**
 ```bash
-python -m src.cli list               # List all strategies
-python -m src.cli run SixtyFortyStrategy  # Run specific strategy
-python -m src.cli download --refresh      # Refresh all data
+python -m src.main                    # Default GUI mode
+# Opens interactive web interface at http://localhost:7860
 ```
 
-### 4. View Results
-- **GUI**: Interactive performance charts and portfolio comparison tables
-- **Analytics**: Detailed CSV reports and rebalancing logs in `analytics/` directory
-- **Console**: Performance summary with key metrics (command-line mode)
+**⌨️ Command Line Interface**
+```bash
+python -m src.main --mode cli         # Interactive CLI
+python -m src.main --list-strategies  # List available strategies
+python -m src.main --strategy-details "Dynamic Allocation"  # Strategy info
+```
+
+**🔧 System Management**
+```bash
+python -m src.main --mode system --status    # System health check
+python -m src.main --debug --validate        # Debug mode validation
+```
+
+### 4. Professional Workflow
+
+#### Data Management
+```bash
+python -m src.main --download-data --refresh    # Update all data
+```
+
+#### Strategy Development
+```bash
+# View strategy repository
+python -m src.main --list-strategies
+
+# Run backtests with professional metrics
+python -m src.main --strategy "My Strategy"
+
+# System health monitoring
+python -m src.main --mode system --status
+```
+
+#### Performance Analysis
+- **Web Dashboard**: Real-time performance visualization and analysis
+- **Analytics Directory**: Detailed CSV reports, rebalancing logs, performance attribution
+- **System Logs**: Comprehensive execution and error logging in `logs/`
 - **Logs**: Detailed execution logs in `logs/app.log`
 
-## File Structure
+## Professional System Architecture
 
 ```
 Personal-Finance-Agent/
-├── src/                    # Core framework
-│   ├── main.py            # Entry point (GUI/CLI modes)
-│   ├── cli.py             # Command-line interface
-│   ├── gui.py             # Gradio web interface
-│   ├── strategies/        # Strategy architecture
-│   │   ├── base.py        # Base strategy classes
-│   │   ├── builtin/       # Built-in strategies
-│   │   └── custom/        # User-defined strategies
-│   ├── data_download.py   # Smart data management
-│   ├── backtest_runner.py # Backtesting engine
-│   └── ...               # Other modules
-├── tests/                 # Unit tests
-├── data/                  # Historical data (auto-generated)
-├── analytics/             # Generated reports and logs
-└── logs/                  # Execution logs
+├── src/                       # 🏗️ Core system modules (professional architecture)
+│   ├── data_center/          # 📊 Market data management
+│   │   ├── data_loader.py    # Enhanced data loading with validation
+│   │   ├── data_processor.py # Data normalization and analytics
+│   │   └── download.py       # Data acquisition and updates
+│   ├── strategies/           # 🎯 Strategy repository  
+│   │   ├── base.py          # Professional base classes
+│   │   ├── metadata.py      # Strategy documentation system
+│   │   ├── registry.py      # Strategy management and discovery
+│   │   ├── utils.py         # Strategy utilities
+│   │   ├── builtin/         # Built-in institutional strategies
+│   │   └── custom/          # User-defined strategies
+│   ├── backtesting/          # 🔬 Professional testing platform
+│   │   ├── engine.py        # Execution lag modeling & transaction costs
+│   │   └── runner.py        # Backtest orchestration
+│   ├── performance/          # 📈 Analytics and reporting
+│   │   └── analytics.py     # Attribution analysis & risk metrics
+│   ├── management/           # ⚙️ System orchestration
+│   │   └── coordinator.py   # Central system management
+│   ├── trading/              # 💼 Order execution framework
+│   │   └── executor.py      # Simulation/paper/live trading modes
+│   ├── main.py              # Professional CLI with system management
+│   ├── gui.py               # Web-based dashboard
+│   ├── cli.py               # Interactive command-line interface
+│   └── app_logger.py        # Professional logging system
+├── config/                   # 🔧 System configuration
+│   ├── assets.py            # Asset definitions and mappings
+│   └── system.py            # Core system parameters
+├── data/                     # 💾 Market data (separated by processing stage)
+│   ├── raw/                 # Unprocessed data from sources
+│   │   ├── price/           # Historical price data
+│   │   ├── pe/              # P/E ratio data  
+│   │   └── yield/           # Interest rate data
+│   ├── processed/           # Clean, normalized data
+│   └── accounts/            # Portfolio holdings and transactions
+├── analytics/                # 📊 Generated analysis and reports
+│   ├── backtests/           # Detailed backtest results
+│   └── performance/         # Performance reports and charts
+├── docs/                     # 📖 Documentation and research
+├── tests/                    # ✅ Comprehensive test suite
+├── notebooks/                # 📓 Analysis and debugging notebooks  
+└── logs/                     # 📝 System execution logs
 ```
 
 ## Create Your Own Strategy
 
 ### 1. Add Strategy Class
 ```python
-# In src/strategy.py
-class MyStrategy(bt.Strategy):
-    def __init__(self):
-        self.market_data = load_market_data()
-        self.pe_cache = load_pe_data()
-        self.portfolio_values = []
-        self.portfolio_dates = []
-    
-    def calculate_target_weights(self, current_date):
-        # Your allocation logic here
-        weights = {
-            'SP500': 0.6,
-            'GLD': 0.4
+# In src/strategies/custom/my_strategy.py
+from src.strategies.base import StaticAllocationStrategy
+from src.strategies.metadata import StrategyMetadata
+
+class MyStrategy(StaticAllocationStrategy):
+    def get_target_weights(self) -> Dict[str, float]:
+        return {
+            'SP500': 0.60,
+            'TLT': 0.40
         }
-        return weights
+    
+    def get_metadata(self) -> StrategyMetadata:
+        return StrategyMetadata(
+            name="My Custom Strategy",
+            strategy_id="my_custom_strategy",
+            category="static",
+            description="Custom 60/40 portfolio allocation"
+        )
 ```
 
-### 2. Update Main File
+### 2. Register Strategy
 ```python
-# In src/main.py
-from src.strategy import MyStrategy
-run_backtest(MyStrategy, "My Strategy")
+# In src/strategies/registry.py
+from src.strategies.custom.my_strategy import MyStrategy
+
+# Add to strategy registry
+strategy_registry.register("My Custom Strategy", MyStrategy)
 ```
 
-### 3. Test
+### 3. Test and Run
 ```bash
+# Validate system
+python -m src.main --validate
+
+# Test your strategy
+python -m src.main --list-strategies
+python -m src.main --strategy "My Custom Strategy"
+
+# Run comprehensive tests
 python -m pytest tests/ -v
-python -m src.main --mode cli
 ```
 
 ## GUI Features
@@ -158,10 +219,17 @@ The Gradio web interface provides four comprehensive tabs:
 
 ## Configuration
 
-Edit `src/config.py` to:
-- **Add new assets** with data source mappings
-- **Modify strategy parameters** (rebalancing, thresholds)
-- **Adjust backtesting settings** (capital, commission)
+### Asset Configuration
+Edit `config/assets.py` to:
+- **Add new assets** with data source mappings (TRADABLE_ASSETS, INDEX_ASSETS)
+- **Configure PE data sources** (PE_ASSETS)
+- **Set up yield data** (YIELD_ASSETS)
+
+### System Configuration
+Edit `config/system.py` to:
+- **Adjust backtesting settings** (capital, commission, execution parameters)
+- **Modify strategy parameters** (rebalancing thresholds, risk limits)
+- **Configure system settings** (logging, performance analysis windows)
 
 ## Smart Data Features
 
@@ -173,22 +241,27 @@ Edit `src/config.py` to:
 ## Troubleshooting
 
 ### Common Issues
-- **"No PE data available"**: Run `python -m src.data_download` or use the "Download Data" button in the GUI.
-- **Import errors**: Use `python -m src.main` (not `python src/main.py`)
-- **Missing data**: Check `data/` directory and re-run data download
+- **"No PE data available"**: Run `python -m src.main --download-data` or use the "Download Data" button in the GUI
+- **Import errors**: Always use `python -m src.main` (not `python src/main.py`)
+- **Missing data**: Check system status with `python -m src.main --mode system --status`
+- **Module not found**: Ensure you're running from the project root directory
 
 ### Useful Commands
 ```bash
-# Check available data
-ls data/
+# System validation and health
+python -m src.main --validate
+python -m src.main --mode system --status
 
-# Re-download data
-python -m src.data_download --refresh
+# Data management  
+python -m src.main --download-data --refresh
+ls data/raw/price/  # Check raw price data
+ls data/raw/pe/     # Check PE data
 
-# Run tests
+# Development and testing
 python -m pytest tests/ -v
+python -m src.main --debug --validate
 
-# Check logs
+# Monitoring
 tail -f logs/app.log
 ```
 

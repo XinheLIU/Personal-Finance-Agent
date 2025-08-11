@@ -7,7 +7,7 @@ import os
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../src')))
 
-from strategy_utils import calculate_pe_percentile, calculate_yield_percentile, get_current_yield
+from strategies.utils import calculate_pe_percentile, calculate_yield_percentile, get_current_yield
 
 class TestStrategyUtils(unittest.TestCase):
 
@@ -29,7 +29,7 @@ class TestStrategyUtils(unittest.TestCase):
         self.market_data = {
             'US10Y': pd.DataFrame({
                 'date': pd.to_datetime(['2023-01-01', '2023-01-02', '2023-01-03']),
-                'close': [3.5, 3.6, 3.4]
+                'yield': [3.5, 3.6, 3.4]
             }).set_index('date')
         }
 

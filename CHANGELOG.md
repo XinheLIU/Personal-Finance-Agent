@@ -5,6 +5,113 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.2] - 2025-08-11
+
+### Major System Architecture Transformation
+
+This release represents a complete transformation from a backtesting framework to a **professional-grade quantitative investment management system** following industry-standard architecture patterns used by asset management firms.
+
+#### 🏗️ Professional 6-Module Architecture Implementation
+- **📊 Data Center Module** (`src/data_center/`): Comprehensive market data management with raw/processed separation
+- **🎯 Strategy Module** (`src/strategies/`): Professional strategy repository with metadata and documentation system
+- **🔬 Backtesting Platform** (`src/backtesting/`): Advanced testing with execution lag modeling and transaction cost analysis
+- **📈 Performance Analysis** (`src/performance/`): Institutional-grade analytics with attribution analysis and risk metrics
+- **⚙️ Management Module** (`src/management/`): Central system coordination with health monitoring and orchestration
+- **💼 Trading Module** (`src/trading/`): Order execution framework supporting simulation, paper trading, and live trading modes
+
+#### 🚀 Professional Features Added
+- **Execution Lag Modeling**: Realistic T+1 execution delays for accurate backtesting
+- **Transaction Cost Analysis**: Comprehensive commission and slippage modeling
+- **System Health Monitoring**: Real-time diagnostics and module status reporting
+- **Performance Attribution**: Factor and sector-based performance analysis
+- **Strategy Metadata System**: Complete documentation and parameter tracking
+- **Enhanced Data Validation**: Comprehensive data quality checks and normalization
+- **Professional CLI**: System management commands with validation and status monitoring
+
+#### 📁 New Directory Structure
+- **`src/`**: Core system modules following institutional architecture pattern
+- **`config/`**: Centralized configuration management (`assets.py`, `system.py`)
+- **`data/raw/`**: Unprocessed market data from sources (price/, pe/, yield/)
+- **`data/processed/`**: Clean, normalized, validated data
+- **`data/accounts/`**: Portfolio holdings and transaction records
+- **`analytics/backtests/`**: Detailed backtest results and analysis
+- **`analytics/performance/`**: Performance reports and charts
+- **`docs/`**: Documentation and research materials
+- **`notebooks/`**: Analysis and debugging notebooks
+
+#### ⚙️ Enhanced Data Management
+- **Raw/Processed Separation**: Professional data pipeline with quality validation
+- **Enhanced Data Loader**: Comprehensive validation, normalization, and error handling
+- **Data Processor**: Advanced normalization and statistical analysis capabilities
+- **Multi-source Integration**: Robust akshare and yfinance integration with fallbacks
+
+#### 🔧 System Management & Operations
+- **System Coordinator**: Central orchestration with startup/shutdown management
+- **Health Diagnostics**: Comprehensive system health checks and module monitoring
+- **Professional CLI**: `python -m src.main --validate`, `--mode system --status`
+- **Error Recovery**: Automatic error handling and graceful degradation
+- **State Management**: System state persistence and recovery
+
+#### 📊 Advanced Analytics & Reporting
+- **Professional Performance Metrics**: Sharpe ratio, Calmar ratio, VaR calculations
+- **Attribution Analysis**: Sector and factor-based performance breakdown
+- **Risk Management**: Drawdown analysis and position limits
+- **Enhanced Reporting**: Comprehensive CSV reports and interactive charts
+- **Rolling Analysis**: Multi-timeframe performance evaluation
+
+#### 🌐 Updated User Interfaces
+- **Enhanced Main Entry Point**: Professional CLI with system management commands
+- **System Validation**: `--validate` command for configuration verification
+- **Status Monitoring**: `--mode system --status` for health checks
+- **Debug Mode**: Enhanced debugging capabilities with detailed logging
+
+### Files Added
+- `src/data_center/data_loader.py` - Enhanced data loading with validation
+- `src/data_center/data_processor.py` - Data normalization and analytics
+- `src/data_center/download.py` - Data acquisition and updates
+- `src/strategies/metadata.py` - Strategy documentation system
+- `src/strategies/registry.py` - Strategy management and discovery
+- `src/strategies/utils.py` - Strategy utilities and helpers
+- `src/backtesting/engine.py` - Professional backtesting with execution lag
+- `src/backtesting/runner.py` - Backtest orchestration
+- `src/performance/analytics.py` - Comprehensive performance analysis
+- `src/management/coordinator.py` - System coordination and health monitoring
+- `src/trading/executor.py` - Order execution framework
+- `config/assets.py` - Asset definitions (moved and enhanced from `src/config.py`)
+- `config/system.py` - System parameters and settings
+- `docs/` - Comprehensive documentation directory
+- `notebooks/` - Analysis and debugging notebooks
+
+### Files Modified
+- `src/main.py` - Complete rewrite with professional CLI and system management
+- `src/data_loader.py` - Updated to use new data center module
+- `README.md` - Updated with professional system documentation
+- `CLAUDE.md` - Comprehensive developer guidance for new architecture
+
+### Breaking Changes
+- **Import Structure**: Configuration imports moved to `config/` directory
+- **Module Structure**: Core functionality reorganized within `src/` with modular architecture
+- **Data Organization**: Data separated into `data/raw/`, `data/processed/`, and `data/accounts/`
+- **CLI Interface**: New command structure with professional system management capabilities
+- **File Structure**: All modules now under `src/` following standard Python project layout
+
+### Migration Guide
+1. **Update imports**: `from config.assets import TRADABLE_ASSETS`
+2. **Use new CLI commands**: 
+   - `python -m src.main --validate` for system validation
+   - `python -m src.main --mode system --status` for health checks
+3. **Data structure**: Manual PE files now go in `data/raw/pe/`
+4. **Strategy development**: Use new base classes in `src/strategies/base.py`
+5. **Configuration**: Update settings in `config/assets.py` and `config/system.py`
+
+### Professional Standards Compliance
+- ✅ Industry-standard 6-module architecture
+- ✅ Institutional-grade data management
+- ✅ Professional error handling and logging
+- ✅ Comprehensive system monitoring
+- ✅ Production-ready configuration management
+- ✅ Enterprise-level testing and validation
+
 ## [0.3.1] - 2025-08-07
 
 ### Major Architecture Refactoring

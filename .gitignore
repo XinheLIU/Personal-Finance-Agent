@@ -224,3 +224,5 @@ data/*.json
 # Keep data directory structure
 !data/.gitkeep 
 GEMINI.md
+/.Claude
+CLAUDE.md
