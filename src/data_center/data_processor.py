@@ -1,14 +1,19 @@
 """
 Data Processing Pipeline
 Handles data normalization, validation, and preparation for strategy consumption.
+Processes raw data into strategy-specific merged datasets.
 """
 
 import pandas as pd
 import numpy as np
-from typing import Dict, List, Optional, Tuple
+import json
+import shutil
+from datetime import datetime
+from typing import Dict, List, Optional, Tuple, Any
 from pathlib import Path
 import warnings
 from src.app_logger import LOG
+from config.assets import ASSETS, PE_ASSETS, YIELD_ASSETS
 
 class DataProcessor:
     """Data processing pipeline for market data normalization and validation"""
@@ -17,6 +22,284 @@ class DataProcessor:
         self.data_root = Path(data_root)
         self.processed_dir = self.data_root / "processed"
         self.processed_dir.mkdir(parents=True, exist_ok=True)
+
+    def _get_strategy_data_requirements(self, strategy_name: str) -> Dict[str, List[str]]:
+        """Define what data each strategy needs"""
+        
+        # Default requirements for most strategies
+        default_requirements = {
+            'price_assets': list(ASSETS.keys()),
+            'pe_assets': list(PE_ASSETS.keys()),
+            'yield_assets': ['US10Y']
+        }
+        
+        # Strategy-specific requirements
+        strategy_requirements = {
+            'dynamic_allocation': {
+                'price_assets': ['CSI300', 'CSI500', 'HSI', 'HSTECH', 'SP500', 'NASDAQ100', 'TLT', 'GLD'],
+                'pe_assets': ['CSI300', 'CSI500', 'HSI', 'HSTECH', 'SP500', 'NASDAQ100'],
+                'yield_assets': ['US10Y']
+            },
+            '60_40': {
+                'price_assets': ['SP500', 'TLT'],
+                'pe_assets': [],
+                'yield_assets': []
+            },
+            'permanent_portfolio': {
+                'price_assets': ['SP500', 'TLT', 'GLD', 'CASH'],
+                'pe_assets': [],
+                'yield_assets': []
+            },
+            'all_weather': {
+                'price_assets': ['SP500', 'TLT', 'IEF', 'VNQ', 'DBC'],
+                'pe_assets': [],
+                'yield_assets': []
+            },
+            'david_swensen': {
+                'price_assets': ['SP500', 'VEA', 'VWO', 'VNQ', 'TLT', 'TIP'],
+                'pe_assets': [],
+                'yield_assets': []
+            }
+        }
+        
+        return strategy_requirements.get(strategy_name, default_requirements)
+    
+    def process_strategy_data(self, strategy_name: str, force_refresh: bool = False) -> bool:
+        """Process and merge data for a specific strategy"""
+        try:
+            LOG.info(f"Processing data for strategy: {strategy_name}")
+            
+            # Import DataLoader here to avoid circular imports
+            from src.data_center.data_loader import DataLoader
+            data_loader = DataLoader(str(self.data_root))
+            
+            # Create strategy-specific directory
+            strategy_dir = self.processed_dir / strategy_name
+            strategy_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Check if processing is needed
+            processed_file = strategy_dir / "market_data.csv"
+            if processed_file.exists() and not force_refresh:
+                if self._is_processed_data_fresh(processed_file):
+                    LOG.info(f"Processed data for {strategy_name} is up to date")
+                    return True
+            
+            # Get data requirements for this strategy
+            requirements = self._get_strategy_data_requirements(strategy_name)
+            
+            # Load raw data
+            market_data = data_loader.load_market_data(normalize=False)
+            pe_data = data_loader.load_pe_data()
+            
+            # Filter data based on strategy requirements
+            filtered_market_data = {
+                asset: data for asset, data in market_data.items() 
+                if asset in requirements['price_assets'] and not data.empty
+            }
+            
+            filtered_pe_data = {
+                asset: data for asset, data in pe_data.items()
+                if asset in requirements['pe_assets'] and not data.empty
+            }
+            
+            # Create merged dataset
+            merged_data = self._merge_strategy_data(
+                filtered_market_data, 
+                filtered_pe_data, 
+                requirements,
+                data_loader
+            )
+            
+            if merged_data.empty:
+                LOG.error(f"No data available for strategy {strategy_name}")
+                return False
+            
+            # Save processed data
+            merged_data.to_csv(processed_file)
+            LOG.info(f"Saved processed data for {strategy_name}: {len(merged_data)} records")
+            
+            # Save metadata
+            self._save_strategy_metadata(strategy_dir, strategy_name, requirements, merged_data)
+            
+            return True
+            
+        except Exception as e:
+            LOG.error(f"Error processing data for strategy {strategy_name}: {e}")
+            return False
+    
+    def _merge_strategy_data(self, market_data: Dict[str, pd.DataFrame], 
+                           pe_data: Dict[str, pd.DataFrame], 
+                           requirements: Dict[str, List[str]],
+                           data_loader) -> pd.DataFrame:
+        """Merge market data, PE data, and yield data for a strategy"""
+        
+        if not market_data:
+            LOG.warning("No market data available for merging")
+            return pd.DataFrame()
+        
+        # Start with the first asset's price data as base
+        base_asset = list(market_data.keys())[0]
+        merged_df = market_data[base_asset][['close']].copy()
+        merged_df.columns = [f'{base_asset}_price']
+        
+        # Add price data for other assets
+        for asset_name, asset_data in market_data.items():
+            if asset_name == base_asset or asset_data.empty:
+                continue
+                
+            price_col = f'{asset_name}_price'
+            merged_df = merged_df.join(
+                asset_data[['close']].rename(columns={'close': price_col}), 
+                how='outer'
+            )
+        
+        # Add PE data
+        for asset_name, pe_df in pe_data.items():
+            if pe_df.empty:
+                continue
+                
+            pe_col = f'{asset_name}_pe'
+            if 'pe_ratio' in pe_df.columns:
+                pe_series = pe_df[['pe_ratio']].rename(columns={'pe_ratio': pe_col})
+                # Forward fill PE data for daily frequency matching
+                merged_df = merged_df.join(pe_series, how='outer')
+                merged_df[pe_col] = merged_df[pe_col].fillna(method='ffill')
+        
+        # Add yield data if required
+        if 'US10Y' in requirements.get('yield_assets', []):
+            try:
+                yield_data = data_loader.load_yield_data()
+                if not yield_data.empty and 'yield' in yield_data.columns:
+                    yield_series = yield_data[['yield']].rename(columns={'yield': 'US10Y_yield'})
+                    merged_df = merged_df.join(yield_series, how='outer')
+                    merged_df['US10Y_yield'] = merged_df['US10Y_yield'].fillna(method='ffill')
+            except Exception as e:
+                LOG.warning(f"Could not add yield data: {e}")
+        
+        # Remove rows with all NaN values and sort by date
+        merged_df = merged_df.dropna(how='all').sort_index()
+        
+        LOG.info(f"Merged data shape: {merged_df.shape}, columns: {list(merged_df.columns)}")
+        return merged_df
+    
+    def _is_processed_data_fresh(self, processed_file: Path) -> bool:
+        """Check if processed data is newer than raw data"""
+        try:
+            processed_mtime = processed_file.stat().st_mtime
+            
+            # Check if any raw data file is newer
+            raw_dir = self.data_root / "raw"
+            for data_type in ['price', 'pe', 'yield']:
+                type_dir = raw_dir / data_type
+                if type_dir.exists():
+                    for raw_file in type_dir.glob('*.csv'):
+                        if raw_file.stat().st_mtime > processed_mtime:
+                            return False
+            
+            return True
+        except Exception as e:
+            LOG.warning(f"Error checking data freshness: {e}")
+            return False
+    
+    def _save_strategy_metadata(self, strategy_dir: Path, strategy_name: str, 
+                              requirements: Dict[str, List[str]], merged_data: pd.DataFrame):
+        """Save metadata about the processed data"""
+        metadata = {
+            'strategy_name': strategy_name,
+            'processed_at': datetime.now().isoformat(),
+            'data_requirements': requirements,
+            'data_shape': merged_data.shape,
+            'date_range': {
+                'start': str(merged_data.index.min()),
+                'end': str(merged_data.index.max())
+            },
+            'columns': list(merged_data.columns)
+        }
+        
+        metadata_file = strategy_dir / "metadata.json"
+        with open(metadata_file, 'w') as f:
+            json.dump(metadata, f, indent=2)
+    
+    def process_all_strategies(self, force_refresh: bool = False) -> Dict[str, bool]:
+        """Process data for all known strategies"""
+        strategies = [
+            'dynamic_allocation',
+            '60_40', 
+            'permanent_portfolio',
+            'all_weather',
+            'david_swensen'
+        ]
+        
+        results = {}
+        for strategy in strategies:
+            results[strategy] = self.process_strategy_data(strategy, force_refresh)
+        
+        return results
+    
+    def get_processed_data(self, strategy_name: str) -> Optional[pd.DataFrame]:
+        """Load processed data for a strategy"""
+        try:
+            processed_file = self.processed_dir / strategy_name / "market_data.csv"
+            if not processed_file.exists():
+                LOG.warning(f"No processed data found for {strategy_name}")
+                return None
+            
+            df = pd.read_csv(processed_file, index_col=0, parse_dates=True)
+            LOG.info(f"Loaded processed data for {strategy_name}: {df.shape}")
+            return df
+            
+        except Exception as e:
+            LOG.error(f"Error loading processed data for {strategy_name}: {e}")
+            return None
+    
+    def cleanup_processed_data(self, strategy_name: Optional[str] = None):
+        """Remove processed data to force regeneration"""
+        try:
+            if strategy_name:
+                strategy_dir = self.processed_dir / strategy_name
+                if strategy_dir.exists():
+                    shutil.rmtree(strategy_dir)
+                    LOG.info(f"Cleaned up processed data for {strategy_name}")
+            else:
+                # Clean all processed data
+                if self.processed_dir.exists():
+                    shutil.rmtree(self.processed_dir)
+                    self.processed_dir.mkdir(parents=True, exist_ok=True)
+                    LOG.info("Cleaned up all processed data")
+        except Exception as e:
+            LOG.error(f"Error cleaning up processed data: {e}")
+    
+    def get_processing_status(self) -> Dict[str, Any]:
+        """Get status of data processing for all strategies"""
+        if not self.processed_dir.exists():
+            return {'processed_strategies': [], 'total_strategies': 0}
+        
+        processed_strategies = []
+        for strategy_dir in self.processed_dir.iterdir():
+            if strategy_dir.is_dir():
+                metadata_file = strategy_dir / "metadata.json"
+                data_file = strategy_dir / "market_data.csv"
+                
+                if metadata_file.exists() and data_file.exists():
+                    try:
+                        with open(metadata_file, 'r') as f:
+                            metadata = json.load(f)
+                        
+                        processed_strategies.append({
+                            'name': strategy_dir.name,
+                            'processed_at': metadata.get('processed_at'),
+                            'data_shape': metadata.get('data_shape'),
+                            'date_range': metadata.get('date_range'),
+                            'file_size_mb': round(data_file.stat().st_size / 1024 / 1024, 2)
+                        })
+                    except Exception as e:
+                        LOG.warning(f"Could not read metadata for {strategy_dir.name}: {e}")
+        
+        return {
+            'processed_strategies': processed_strategies,
+            'total_strategies': len(processed_strategies),
+            'processed_dir': str(self.processed_dir)
+        }
     
     def normalize_price_series(self, data: Dict[str, pd.DataFrame], base_date: Optional[str] = None) -> Dict[str, pd.DataFrame]:
         """
@@ -287,3 +570,27 @@ class DataProcessor:
                 LOG.error(f"Error saving processed data for {asset_name}: {e}")
         
         LOG.info(f"Processed data saved to {self.processed_dir}")
+
+# Global data processor instance
+_data_processor = DataProcessor()
+
+# Convenience functions for strategy-specific data processing
+def process_strategy_data(strategy_name: str, force_refresh: bool = False) -> bool:
+    """Process data for a specific strategy"""
+    return _data_processor.process_strategy_data(strategy_name, force_refresh)
+
+def process_all_strategies(force_refresh: bool = False) -> Dict[str, bool]:
+    """Process data for all strategies"""
+    return _data_processor.process_all_strategies(force_refresh)
+
+def get_processed_data(strategy_name: str) -> Optional[pd.DataFrame]:
+    """Get processed data for a strategy"""
+    return _data_processor.get_processed_data(strategy_name)
+
+def get_processing_status() -> Dict[str, Any]:
+    """Get processing status for all strategies"""
+    return _data_processor.get_processing_status()
+
+def cleanup_processed_data(strategy_name: Optional[str] = None):
+    """Clean up processed data"""
+    return _data_processor.cleanup_processed_data(strategy_name)

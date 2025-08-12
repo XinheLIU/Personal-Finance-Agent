@@ -112,8 +112,21 @@ class DynamicAllocationStrategy(bt.Strategy):
     )
     
     def __init__(self):
+        # Use processed data where available
+        from src.data_center.data_processor import get_processed_data, process_strategy_data
+        
+        # Try to use processed data, fall back to raw data
+        if process_strategy_data('dynamic_allocation'):
+            self.processed_data = get_processed_data('dynamic_allocation')
+            LOG.info("Using processed data for dynamic allocation strategy")
+        else:
+            self.processed_data = None
+            LOG.warning("Processed data not available, using raw data")
+            
+        # Load raw data for backward compatibility
         self.market_data = load_market_data()
         self.pe_cache = load_pe_data()
+        
         self.last_rebalance = 0
         self.target_weights = {}
         self.current_weights = {}

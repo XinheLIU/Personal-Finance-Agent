@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Data Model & Processing Pipeline Refactor - 2025-08-12
+
+- Separated raw and processed data; removed duplicate directories.
+- Added strategy-specific processed datasets and automated processing after downloads.
+- Introduced `DataProcessor` for merging price, PE, and yield data per strategy with caching and metadata.
+- CLI: new `--process-data` and `--show-processing-status` commands; auto-processing on download.
+- Strategies now use processed data (with raw fallback); improved loading speed and memory use.
+- System health checks now include data processing; better error handling and freshness tracking.
+
+**Files Added/Modified:**  
+- `src/data_center/data_processor.py` (new pipeline)  
+- Updated: `src/data_center/download.py`, `src/strategies/builtin/dynamic_strategies.py`, `src/strategies/legacy.py`, `src/main.py`, `src/management/coordinator.py`, `README.md`, `CHANGELOG.md`
+
+**Data Structure:**  
+- All raw data in `/data/raw/`
+- Processed data in `/data/processed/<strategy_name>/` (tailored per strategy)
+- Metadata saved with processed data
+
+**Performance:**  
+- Faster, memory-efficient data loading
+- Transparent processing status
+
+**Compliance:**  
+- Institutional pipeline, strategy-level optimization, full lineage, robust error handling, and monitoring
+
 ## [0.3.3] - 2025-08-11
 
 ### GUI Navigation & Multi-Asset Visualization Enhancements

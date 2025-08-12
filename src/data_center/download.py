@@ -27,7 +27,235 @@ def get_data_range_info(df):
     end_date = df[date_col].max()
     return start_date, end_date
 
-# Paste remaining functions from original file here
+# Data download functions
+def download_yfinance_data(ticker, asset_name):
+    """Download price data from Yahoo Finance"""
+    try:
+        import yfinance as yf
+        
+        LOG.info(f"Downloading {asset_name} data from Yahoo Finance (ticker: {ticker})")
+        
+        # Download data with maximum history
+        ticker_obj = yf.Ticker(ticker)
+        data = ticker_obj.history(period="max")
+        
+        if data.empty:
+            LOG.warning(f"No data received for {ticker}")
+            return None, None, None
+        
+        # Ensure date column
+        data.reset_index(inplace=True)
+        data.rename(columns={'Date': 'date'}, inplace=True)
+        
+        # Save to file
+        os.makedirs('data/raw/price', exist_ok=True)
+        start_date = data['date'].min().strftime('%Y%m%d')
+        end_date = data['date'].max().strftime('%Y%m%d')
+        filename = f"{asset_name}_price_{start_date}_to_{end_date}.csv"
+        filepath = os.path.join('data/raw/price', filename)
+        
+        data.to_csv(filepath, index=False)
+        LOG.info(f"Saved {asset_name} data to {filepath} ({len(data)} records)")
+        
+        return filepath, start_date, end_date
+        
+    except Exception as e:
+        LOG.error(f"Error downloading {asset_name} from Yahoo Finance: {e}")
+        return None, None, None
+
+def download_akshare_index(symbol, asset_name):
+    """Download index data from akshare"""
+    try:
+        LOG.info(f"Downloading {asset_name} data from akshare (symbol: {symbol})")
+        
+        # Get stock data from akshare
+        data = ak.stock_zh_a_hist(symbol=symbol, period="daily", adjust="qfq")
+        
+        if data.empty:
+            LOG.warning(f"No data received for {symbol}")
+            return None, None, None
+        
+        # Standardize column names
+        data.reset_index(inplace=True, drop=True)
+        if '日期' in data.columns:
+            data.rename(columns={'日期': 'date'}, inplace=True)
+        
+        # Convert date column to datetime
+        data['date'] = pd.to_datetime(data['date'])
+        
+        # Save to file
+        os.makedirs('data/raw/price', exist_ok=True)
+        start_date = data['date'].min().strftime('%Y%m%d')
+        end_date = data['date'].max().strftime('%Y%m%d')
+        filename = f"{asset_name}_price_{start_date}_to_{end_date}.csv"
+        filepath = os.path.join('data/raw/price', filename)
+        
+        data.to_csv(filepath, index=False)
+        LOG.info(f"Saved {asset_name} data to {filepath} ({len(data)} records)")
+        
+        return filepath, start_date, end_date
+        
+    except Exception as e:
+        LOG.error(f"Error downloading {asset_name} from akshare: {e}")
+        return None, None, None
+
+def download_all_assets(refresh=False):
+    """Download data for all configured assets"""
+    LOG.info("Starting comprehensive data download...")
+    
+    successful_downloads = 0
+    failed_downloads = 0
+    
+    # Download price data for all tradable assets
+    for asset_name, config in ASSETS.items():
+        LOG.info(f"Processing {asset_name}...")
+        
+        # Try yfinance first if available
+        yfinance_ticker = config.get('yfinance')
+        if yfinance_ticker:
+            filepath, start_date, end_date = download_yfinance_data(yfinance_ticker, asset_name)
+            if filepath:
+                successful_downloads += 1
+                continue
+        
+        # Try akshare if yfinance failed or not available
+        akshare_symbol = config.get('akshare')
+        if akshare_symbol:
+            filepath, start_date, end_date = download_akshare_index(akshare_symbol, asset_name)
+            if filepath:
+                successful_downloads += 1
+                continue
+        
+        LOG.warning(f"Failed to download data for {asset_name}")
+        failed_downloads += 1
+    
+    # Download yield data
+    try:
+        LOG.info("Downloading US 10Y yield data...")
+        import yfinance as yf
+        yield_data = yf.download("^TNX", period="max")
+        
+        if not yield_data.empty:
+            yield_data.reset_index(inplace=True)
+            yield_data.rename(columns={'Date': 'date'}, inplace=True)
+            
+            os.makedirs('data/raw/yield', exist_ok=True)
+            start_date = yield_data['date'].min().strftime('%Y%m%d')
+            end_date = yield_data['date'].max().strftime('%Y%m%d')
+            filename = f"US10Y_yield_{start_date}_to_{end_date}.csv"
+            filepath = os.path.join('data/raw/yield', filename)
+            
+            yield_data.to_csv(filepath, index=False)
+            LOG.info(f"Saved US 10Y yield data to {filepath} ({len(yield_data)} records)")
+            successful_downloads += 1
+        else:
+            LOG.warning("Failed to download US 10Y yield data")
+            failed_downloads += 1
+            
+    except Exception as e:
+        LOG.error(f"Error downloading yield data: {e}")
+        failed_downloads += 1
+    
+    # Download PE data
+    download_pe_data()
+    
+    LOG.info(f"Data download completed: {successful_downloads} successful, {failed_downloads} failed")
+    return successful_downloads, failed_downloads
+
+def download_pe_data():
+    """Download P/E ratio data from various sources"""
+    LOG.info("Downloading P/E ratio data...")
+    
+    for asset_name, config in PE_ASSETS.items():
+        try:
+            akshare_source = config.get('akshare')
+            
+            if akshare_source == 'INDEX_PE':
+                # Download CSI300 P/E data using akshare
+                pe_data = ak.stock_index_pe_lg()
+                if not pe_data.empty:
+                    # Filter for CSI300 (沪深300)
+                    csi300_data = pe_data[pe_data['指数代码'] == '000300']
+                    if not csi300_data.empty:
+                        # Process and save
+                        processed_data = csi300_data[['日期', '市盈率']].copy()
+                        processed_data.columns = ['date', 'pe_ratio']
+                        processed_data['date'] = pd.to_datetime(processed_data['date'])
+                        
+                        os.makedirs('data/raw/pe', exist_ok=True)
+                        start_date = processed_data['date'].min().strftime('%Y%m%d')
+                        end_date = processed_data['date'].max().strftime('%Y%m%d')
+                        filename = f"{asset_name}_pe_{start_date}_to_{end_date}.csv"
+                        filepath = os.path.join('data/raw/pe', filename)
+                        
+                        processed_data.to_csv(filepath, index=False)
+                        LOG.info(f"Saved {asset_name} P/E data to {filepath} ({len(processed_data)} records)")
+                    
+            elif akshare_source == 'MARKET_PE':
+                # Download CSI500 P/E data using akshare
+                pe_data = ak.stock_market_pe_lg()
+                if not pe_data.empty:
+                    # Filter for CSI500 (中证500)
+                    csi500_data = pe_data[pe_data['指数代码'] == '000905']
+                    if not csi500_data.empty:
+                        # Process and save
+                        processed_data = csi500_data[['日期', '市盈率']].copy()
+                        processed_data.columns = ['date', 'pe_ratio']
+                        processed_data['date'] = pd.to_datetime(processed_data['date'])
+                        
+                        os.makedirs('data/raw/pe', exist_ok=True)
+                        start_date = processed_data['date'].min().strftime('%Y%m%d')
+                        end_date = processed_data['date'].max().strftime('%Y%m%d')
+                        filename = f"{asset_name}_pe_{start_date}_to_{end_date}.csv"
+                        filepath = os.path.join('data/raw/pe', filename)
+                        
+                        processed_data.to_csv(filepath, index=False)
+                        LOG.info(f"Saved {asset_name} P/E data to {filepath} ({len(processed_data)} records)")
+            
+            # For manual files, just log that they should be downloaded manually
+            manual_file = config.get('manual_file')
+            if manual_file:
+                LOG.info(f"{asset_name}: Manual P/E file required - {manual_file}")
+                
+        except Exception as e:
+            LOG.error(f"Error downloading P/E data for {asset_name}: {e}")
+
+def main(refresh=False, auto_process=True):
+    """Main function for data download script"""
+    LOG.info("=" * 60)
+    LOG.info("MARKET DATA DOWNLOAD SCRIPT")
+    LOG.info("=" * 60)
+    
+    try:
+        successful, failed = download_all_assets(refresh=refresh)
+        
+        LOG.info("=" * 60)
+        LOG.info(f"DOWNLOAD COMPLETED: {successful} successful, {failed} failed")
+        
+        # Auto-process data after successful downloads
+        if auto_process and successful > 0:
+            LOG.info("Auto-processing data for all strategies...")
+            try:
+                from src.data_center.data_processor import process_all_strategies
+                results = process_all_strategies(force_refresh=refresh)
+                
+                processed_count = sum(1 for success in results.values() if success)
+                LOG.info(f"DATA PROCESSING COMPLETED: {processed_count}/{len(results)} strategies processed")
+                
+                if processed_count < len(results):
+                    failed_strategies = [k for k, v in results.items() if not v]
+                    LOG.warning(f"Failed to process data for: {failed_strategies}")
+                
+            except Exception as e:
+                LOG.error(f"Auto-processing failed: {e}")
+        
+        LOG.info("=" * 60)
+        
+        return successful, failed
+        
+    except Exception as e:
+        LOG.error(f"Download script failed: {e}")
+        return 0, 1
 
 def parse_manual_pe_date(date_str, asset_name):
     try:
@@ -46,7 +274,7 @@ def parse_manual_pe_date(date_str, asset_name):
         return None
 
 def find_manual_pe_files(manual_file_pattern):
-    search_paths = ['data/pe/', './']
+    search_paths = ['data/raw/pe/', './']
     found_files = []
     for search_path in search_paths:
         for extension in ['.xlsx', '.csv']:

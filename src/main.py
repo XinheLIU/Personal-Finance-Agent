@@ -66,6 +66,10 @@ Examples:
                        help='Download/update market data')
     parser.add_argument('--refresh-data', action='store_true',
                        help='Force refresh of all data files')
+    parser.add_argument('--process-data', action='store_true',
+                       help='Process raw data into strategy-specific datasets')
+    parser.add_argument('--show-processing-status', action='store_true',
+                       help='Show data processing status for all strategies')
     
     # System operations
     parser.add_argument('--status', action='store_true',
@@ -95,7 +99,7 @@ Examples:
         return
     
     # Handle data operations
-    if args.download_data or args.refresh_data:
+    if args.download_data or args.refresh_data or args.process_data or args.show_processing_status:
         handle_data_operations(args)
         return
     
@@ -145,11 +149,42 @@ def handle_system_operations(args):
         print("System mode requires --status, --startup, or --shutdown")
 
 def handle_data_operations(args):
-    """Handle data download and refresh operations"""
+    """Handle data download, processing, and refresh operations"""
     try:
         from src.data_center.download import main as download_main
-        download_main(refresh=args.refresh_data)
+        from src.data_center.data_processor import process_all_strategies, get_processing_status
+        
+        # Download data if requested
+        if args.download_data or args.refresh_data:
+            download_main(refresh=args.refresh_data)
+            print("✓ Data download completed")
+        
+        # Process data if requested
+        if args.process_data or args.download_data or args.refresh_data:
+            print("Processing data for all strategies...")
+            results = process_all_strategies(force_refresh=args.refresh_data)
+            
+            successful = [k for k, v in results.items() if v]
+            failed = [k for k, v in results.items() if not v]
+            
+            if successful:
+                print(f"✓ Successfully processed data for: {', '.join(successful)}")
+            if failed:
+                print(f"✗ Failed to process data for: {', '.join(failed)}")
+        
+        # Show processing status if requested
+        if args.show_processing_status:
+            status = get_processing_status()
+            print(f"\nProcessed data status:")
+            print(f"  Total strategies processed: {status['total_strategies']}")
+            print(f"  Processed data directory: {status['processed_dir']}")
+            
+            for strategy_info in status['processed_strategies']:
+                print(f"  - {strategy_info['name']}: {strategy_info['data_shape']} records, "
+                      f"{strategy_info['file_size_mb']} MB")
+        
         print("✓ Data operations completed")
+        
     except Exception as e:
         LOG.error(f"Data operations failed: {e}")
         print(f"✗ Data operations failed: {e}")
@@ -237,6 +272,27 @@ def print_system_status():
         status = "✓" if module_health.get('healthy', True) else "✗"
         print(f"  {status} {module_name.replace('_', ' ').title()}")
     
+    # Data processing status
+    try:
+        from src.data_center.data_processor import get_processing_status
+        processing_status = get_processing_status()
+        
+        print("\n📈 Data Processing Status:")
+        print(f"  Total Strategies Processed: {processing_status['total_strategies']}")
+        print(f"  Processed Data Directory: {processing_status['processed_dir']}")
+        
+        if processing_status['processed_strategies']:
+            print("  Strategy Data Status:")
+            for strategy_info in processing_status['processed_strategies']:
+                date_range = strategy_info.get('date_range', {})
+                print(f"    ✓ {strategy_info['name']}: {strategy_info['data_shape']} records "
+                      f"({date_range.get('start', 'N/A')} to {date_range.get('end', 'N/A')})")
+        else:
+            print("    ⚠️  No processed strategy data found")
+            
+    except Exception as e:
+        print(f"\n📈 Data Processing Status: ✗ Error checking status ({e})")
+    
     # Strategy status
     strategies = system_coordinator.list_strategies()
     print(f"\n🎯 Strategies: {len(strategies)} registered")
@@ -261,16 +317,33 @@ def launch_cli_interface(args):
             print(f"✗ CLI launch failed: {e}")
 
 def launch_gui_interface():
-    """Launch GUI interface"""
-    LOG.info("Launching Quant Investment System GUI...")
+    """Launch Streamlit GUI interface"""
+    LOG.info("Launching Quant Investment System Streamlit GUI...")
     try:
-        from src.gui import demo
-        print("🌐 Starting web interface...")
-        demo.launch()
+        print("🌐 Starting Streamlit web interface...")
+        # Launch Streamlit app
+        import subprocess
+        import os
+        
+        # Get the project root directory
+        project_root = Path(__file__).parent.parent
+        streamlit_app_path = project_root / "src" / "streamlit_app.py"
+        
+        # Set PYTHONPATH to include project root
+        env = os.environ.copy()
+        env['PYTHONPATH'] = str(project_root)
+        
+        # Launch Streamlit
+        cmd = [sys.executable, "-m", "streamlit", "run", str(streamlit_app_path), "--server.port", "8501", "--server.headless", "false"]
+        print(f"Running command: {' '.join(cmd)}")
+        print("🚀 Streamlit app will open in your default browser at http://localhost:8501")
+        
+        subprocess.run(cmd, env=env, cwd=str(project_root))
+        
     except ImportError as e:
-        LOG.error(f"GUI dependencies not available: {e}")
+        LOG.error(f"Streamlit not available: {e}")
         print("✗ GUI launch failed: Missing dependencies")
-        print("Install with: pip install gradio")
+        print("Install with: pip install streamlit")
         sys.exit(1)
     except Exception as e:
         LOG.error(f"GUI launch failed: {e}")

@@ -22,6 +22,12 @@ user-strategy.md
 *.xlsx
 *.xls
 
+# Analytics and processed caches (JSON)
+analytics/performance/**/*.json
+analytics/transparency/**/*.json
+analytics/backtests/**/*.json
+data/processed/**/*.json
+
 # Logs
 logs/
 *.log
@@ -226,3 +232,4 @@ data/*.json
 GEMINI.md
 /.Claude
 CLAUDE.md
+/.serena

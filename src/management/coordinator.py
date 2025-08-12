@@ -317,6 +317,25 @@ class SystemCoordinator:
             
             health_status['modules']['system_resources'] = resource_health
             
+            # Check processed data status
+            try:
+                from src.data_center.data_processor import get_processing_status
+                processing_status = get_processing_status()
+                
+                processed_health = {
+                    'total_processed': processing_status['total_strategies'],
+                    'strategies_processed': [s['name'] for s in processing_status['processed_strategies']],
+                    'healthy': processing_status['total_strategies'] > 0
+                }
+                
+                if not processed_health['healthy']:
+                    health_status['issues'].append("No processed strategy data available")
+                
+                health_status['modules']['data_processing'] = processed_health
+                
+            except Exception as e:
+                health_status['issues'].append(f"Could not check data processing status: {e}")
+            
             # Check disk space (simplified)
             try:
                 analytics_dir = Path("analytics")

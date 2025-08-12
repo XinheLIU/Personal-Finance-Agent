@@ -51,8 +51,8 @@ python -m src.main --mode system --startup
 
 **🌐 Web GUI (Recommended)**
 ```bash
-python -m src.main                    # Default GUI mode
-# Opens interactive web interface at http://localhost:7860
+python -m src.main                    # Default Streamlit GUI mode
+# Opens interactive web interface at http://localhost:8501
 ```
 
 **⌨️ Command Line Interface**
@@ -189,7 +189,7 @@ python -m pytest tests/ -v
 
 ## GUI Features
 
-The Gradio web interface provides four comprehensive tabs:
+The Streamlit web interface provides comprehensive tabs and sections:
 
 ### **Backtest Tab**
 - **Strategy Selection**: Choose from Dynamic Allocation, 60/40, Permanent Portfolio, All Weather, David Swensen, or create custom strategies
@@ -231,12 +231,34 @@ Edit `config/system.py` to:
 - **Modify strategy parameters** (rebalancing thresholds, risk limits)
 - **Configure system settings** (logging, performance analysis windows)
 
-## Smart Data Features
+## Professional Data Pipeline
 
+### **Smart Raw Data Management**
 - **Automatic caching**: Only downloads missing data periods
 - **Date-range naming**: Files named like `CSI300_price_20040101_to_20250715.csv`
 - **Multi-source fallbacks**: akshare → yfinance with error handling
 - **Refresh option**: Use `--refresh` flag to force re-download
+
+### **Strategy-Specific Data Processing**
+- **Automated Processing**: Raw data automatically merged into strategy-specific datasets
+- **Intelligent Requirements**: Each strategy gets only the data it needs (price, PE, yield)
+- **Performance Optimization**: Processed data cached and reused until raw data changes
+- **Professional Pipeline**: `/data/raw/` → DataProcessor → `/data/processed/<strategy>/`
+
+### **Data Processing Commands**
+```bash
+# Process data for all strategies
+python -m src.main --process-data
+
+# View processing status
+python -m src.main --show-processing-status
+
+# Download and auto-process data
+python -m src.main --download-data
+
+# Force refresh and reprocess everything
+python -m src.main --refresh-data
+```
 
 ## Troubleshooting
 
@@ -253,9 +275,11 @@ python -m src.main --validate
 python -m src.main --mode system --status
 
 # Data management  
-python -m src.main --download-data --refresh
-ls data/raw/price/  # Check raw price data
-ls data/raw/pe/     # Check PE data
+python -m src.main --download-data --refresh    # Download and auto-process
+python -m src.main --process-data                # Process existing raw data
+python -m src.main --show-processing-status      # View processed data status
+ls data/raw/price/                              # Check raw price data
+ls data/processed/                              # Check processed strategy data
 
 # Development and testing
 python -m pytest tests/ -v
@@ -267,7 +291,7 @@ tail -f logs/app.log
 
 ## Dependencies
 
-- **gradio**: Interactive web GUI
+- **streamlit**: Interactive web GUI
 - **backtrader**: Backtesting engine
 - **akshare/yfinance**: Market data sources
 - **pandas/numpy**: Data processing

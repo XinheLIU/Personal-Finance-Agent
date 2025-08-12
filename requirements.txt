@@ -9,4 +9,6 @@ requests
 python-dotenv
 openpyxl
 pytest
-gradio
+plotly
+bokeh
+streamlit

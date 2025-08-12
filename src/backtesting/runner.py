@@ -7,6 +7,8 @@ import pandas as pd
 import numpy as np
 import os
 from src.app_logger import LOG
+from pathlib import Path
+from src.performance.analytics import PerformanceAnalyzer
 from config import INITIAL_CAPITAL, COMMISSION, ASSETS
 from src.data_center.data_loader import load_market_data, load_data_feed
 
@@ -157,14 +159,17 @@ def run_backtest(strategy_class, strategy_name, start_date=None, end_date=None, 
         # Save rebalancing log if available
         if hasattr(strat, 'rebalance_log') and strat.rebalance_log:
             log_df = pd.DataFrame(strat.rebalance_log)
-            log_dir = 'analytics'
-            os.makedirs(log_dir, exist_ok=True)
+            # Ensure backtests directory exists
+            log_dir = Path('analytics') / 'backtests'
+            log_dir.mkdir(parents=True, exist_ok=True)
             # Sanitize strategy name for filename
             safe_strategy_name = strategy_name.replace('/', '_').replace(' ', '_')
-            log_file = os.path.join(log_dir, f'{safe_strategy_name}_rebalance_log.csv')
+            from datetime import datetime
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            log_file = log_dir / f'{safe_strategy_name}_rebalance_log_{timestamp}.csv'
             log_df.to_csv(log_file, index=False)
             LOG.info(f"Rebalancing log saved to {log_file}")
-            backtest_results['rebalance_log'] = log_file
+            backtest_results['rebalance_log'] = str(log_file)
         
         # Save portfolio values if available
         if hasattr(strat, 'portfolio_values') and strat.portfolio_values:
@@ -179,17 +184,33 @@ def run_backtest(strategy_class, strategy_name, start_date=None, end_date=None, 
 
                 # Also persist to CSV for analytics/debugging
                 portfolio_df = pd.DataFrame({
-                    'date': dates,
-                    'portfolio_value': values
+                    'date': pd.to_datetime(dates),
+                    'value': values
                 })
-                portfolio_dir = 'analytics'
-                os.makedirs(portfolio_dir, exist_ok=True)
+                portfolio_df['returns'] = portfolio_df['value'].pct_change()
+                # Cache DataFrame in results for performance analytics
+                backtest_results['portfolio_evolution'] = portfolio_df
+
+                # Ensure backtests directory exists
+                portfolio_dir = Path('analytics') / 'backtests'
+                portfolio_dir.mkdir(parents=True, exist_ok=True)
                 # Sanitize strategy name for filename
                 safe_strategy_name = strategy_name.replace('/', '_').replace(' ', '_')
-                portfolio_file = os.path.join(portfolio_dir, f'{safe_strategy_name}_portfolio_values.csv')
+                from datetime import datetime
+                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                portfolio_file = portfolio_dir / f'{safe_strategy_name}_portfolio_values_{timestamp}.csv'
                 portfolio_df.to_csv(portfolio_file, index=False)
                 LOG.info(f"Portfolio values saved to {portfolio_file}")
-                backtest_results['portfolio_values_file'] = portfolio_file
+                backtest_results['portfolio_values_file'] = str(portfolio_file)
+
+        # Generate and cache performance stats report
+        try:
+            if backtest_results.get('portfolio_evolution') is not None:
+                analyzer = PerformanceAnalyzer()
+                performance_report = analyzer.generate_performance_report(backtest_results, save_charts=False)
+                backtest_results['performance_report'] = performance_report
+        except Exception as e:
+            LOG.warning(f"Failed to generate performance report: {e}")
         
         LOG.info(f"Backtest completed successfully for {strategy_name}")
         return backtest_results

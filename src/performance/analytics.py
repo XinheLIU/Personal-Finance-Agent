@@ -515,8 +515,8 @@ def log_rebalance_details(strategy_name: str, rebalance_data: list) -> None:
         LOG.info("No rebalancing data to log.")
         return
     df = pd.DataFrame(rebalance_data)
-    output_dir = Path("analytics")
-    output_dir.mkdir(exist_ok=True)
+    output_dir = Path("analytics") / "backtests"
+    output_dir.mkdir(parents=True, exist_ok=True)
     file_path = output_dir / f"{strategy_name.replace(' ', '_').lower()}_rebalance_log.csv"
     df.to_csv(file_path, index=False)
     LOG.info(f"Rebalancing details logged to {file_path}")

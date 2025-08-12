@@ -18,6 +18,8 @@ class BaseStrategy(bt.Strategy):
         self.portfolio_values = []
         self.portfolio_dates = []
         self.rebalance_log = []
+        # Stores last weight calculation breakdown for transparency
+        self.last_weight_calc_details: Optional[Dict[str, Any]] = None
         
     def next(self):
         """Common next() implementation for all strategies"""
@@ -44,6 +46,9 @@ class BaseStrategy(bt.Strategy):
         """Rebalance portfolio to target weights"""
         total_value = self.broker.getvalue()
         transactions = []
+        # Capture current weights and current prices for transparency
+        current_weights_snapshot = self.get_current_weights()
+        current_prices_snapshot = {}
         
         for data in self.datas:
             asset_name = data._name
@@ -51,7 +56,9 @@ class BaseStrategy(bt.Strategy):
             target_value = total_value * target_weight
             
             current_position = self.getposition(data)
-            current_value = current_position.size * data.close[0]
+            current_price = data.close[0]
+            current_prices_snapshot[asset_name] = float(current_price)
+            current_value = current_position.size * current_price
             
             if target_value == 0 and current_position.size > 0:
                 order = self.close(data)
@@ -73,9 +80,16 @@ class BaseStrategy(bt.Strategy):
                 'date': self.datas[0].datetime.date(0),
                 'total_portfolio_value': total_value,
                 'transactions': ", ".join(transactions),
+                'current_weights': current_weights_snapshot,
+                'prices': current_prices_snapshot,
+                'rebalance_days': getattr(self.params, 'rebalance_days', None),
+                'threshold': getattr(self.params, 'threshold', None),
             }
             for asset, weight in target_weights.items():
                 rebalance_details[f'{asset}_target_weight'] = weight
+            # Attach calculation details if provided by strategy implementation
+            if getattr(self, 'last_weight_calc_details', None) is not None:
+                rebalance_details['calculation_details'] = self.last_weight_calc_details
             self.rebalance_log.append(rebalance_details)
 
 class StaticAllocationStrategy(BaseStrategy):
@@ -109,6 +123,17 @@ class StaticAllocationStrategy(BaseStrategy):
         
         if (len(self) - self.last_rebalance >= self.params.rebalance_days) or len(self) == 1:
             target_weights = self.get_target_weights()
+            # For static strategies, record simple calculation details
+            self.last_weight_calc_details = {
+                'inputs': {
+                    'strategy_type': 'static',
+                    'rebalance_days': getattr(self.params, 'rebalance_days', None),
+                    'threshold': getattr(self.params, 'threshold', None)
+                },
+                'outputs': {
+                    'final_weights': target_weights.copy()
+                }
+            }
             current_weights = self.get_current_weights()
             
             if self.need_rebalancing(target_weights, current_weights) or len(self) == 1:

@@ -102,28 +102,94 @@ def display_data_explorer(data_dict: Dict[str, pd.DataFrame]):
     
     st.subheader("Data Explorer")
     
-    # Asset selection
-    selected_assets = st.multiselect(
-        "Select assets to visualize:",
-        options=list(data_dict.keys()),
-        default=list(data_dict.keys())[:3] if len(data_dict) >= 3 else list(data_dict.keys())
-    )
+    # Configuration section with three columns
+    config_col1, config_col2, config_col3 = st.columns([1.2, 1, 1])
+    
+    with config_col1:
+        # Asset selection
+        selected_assets = st.multiselect(
+            "Select assets to visualize:",
+            options=list(data_dict.keys()),
+            default=list(data_dict.keys())[:3] if len(data_dict) >= 3 else list(data_dict.keys())
+        )
+    
+    with config_col2:
+        # Visualization type selection
+        viz_type = st.selectbox(
+            "Visualization type:",
+            options=["Normalized Comparison (Start at 100)", "Individual Time Series", "Percentage Returns Comparison", "Data Quality Check"]
+        )
+    
+    with config_col3:
+        # Start date selection for filtering data
+        st.write("**Date Range Filter**")
+        
+        # Find the earliest and latest dates across all selected assets
+        min_date, max_date = None, None
+        if selected_assets:
+            all_dates = []
+            for asset in selected_assets:
+                if asset in data_dict and not data_dict[asset].empty:
+                    df = data_dict[asset]
+                    date_col = 'Date' if 'Date' in df.columns else df.columns[0]
+                    if pd.api.types.is_datetime64_any_dtype(df[date_col]):
+                        all_dates.extend(df[date_col].tolist())
+            
+            if all_dates:
+                min_date = min(all_dates).date() if hasattr(min(all_dates), 'date') else min(all_dates)
+                max_date = max(all_dates).date() if hasattr(max(all_dates), 'date') else max(all_dates)
+        
+        # Default to last 3 years or available range
+        from datetime import date, timedelta
+        default_start = date.today() - timedelta(days=3*365)
+        if min_date and default_start < min_date:
+            default_start = min_date
+        
+        start_date = st.date_input(
+            "Start Date:",
+            value=default_start,
+            min_value=min_date if min_date else date(2010, 1, 1),
+            max_value=max_date if max_date else date.today(),
+            help="Filter data from this date forward"
+        )
     
     if not selected_assets:
         st.info("Please select at least one asset to visualize")
         return
     
-    # Visualization type selection
-    viz_type = st.selectbox(
-        "Visualization type:",
-        options=["Normalized Comparison (Start at 100)", "Individual Time Series", "Percentage Returns Comparison", "Data Quality Check"]
-    )
+    # Helper function to filter data by start date
+    def filter_data_by_date(df: pd.DataFrame, start_date_filter) -> pd.DataFrame:
+        """Filter dataframe by start date."""
+        if df.empty:
+            return df
+        
+        date_col = 'Date' if 'Date' in df.columns else df.columns[0]
+        
+        # Ensure the date column is datetime
+        if not pd.api.types.is_datetime64_any_dtype(df[date_col]):
+            try:
+                df[date_col] = pd.to_datetime(df[date_col])
+            except:
+                return df  # Return original if conversion fails
+        
+        # Convert start_date to datetime for comparison
+        start_datetime = pd.to_datetime(start_date_filter)
+        
+        # Filter data
+        filtered_df = df[df[date_col] >= start_datetime].copy()
+        return filtered_df
+    
+    # Apply date filtering to selected assets
+    filtered_data_dict = {}
+    for asset in selected_assets:
+        if asset in data_dict and not data_dict[asset].empty:
+            filtered_data_dict[asset] = filter_data_by_date(data_dict[asset], start_date)
     
     if viz_type == "Individual Time Series":
         for asset in selected_assets:
-            if asset in data_dict and not data_dict[asset].empty:
-                st.subheader(f"{asset} Time Series")
-                df = data_dict[asset]
+            if asset in filtered_data_dict and not filtered_data_dict[asset].empty:
+                st.subheader(f"{asset} Time Series (from {start_date})")
+                df = filtered_data_dict[asset]
                 
                 # Determine date and value columns
                 date_col = 'Date' if 'Date' in df.columns else df.columns[0]
@@ -137,56 +203,68 @@ def display_data_explorer(data_dict: Dict[str, pd.DataFrame]):
                 with st.expander(f"Data Summary - {asset}"):
                     col1, col2 = st.columns(2)
                     with col1:
-                        st.write("**Data Range:**")
+                        st.write("**Filtered Data Range:**")
                         st.write(f"From: {df[date_col].min()}")
                         st.write(f"To: {df[date_col].max()}")
                     with col2:
                         st.write("**Statistics:**")
                         st.write(f"Records: {len(df)}")
                         st.write(f"Missing: {df[value_col].isna().sum()}")
+            elif asset in selected_assets:
+                st.warning(f"No data available for {asset} from {start_date}")
     
     elif viz_type == "Normalized Comparison (Start at 100)":
-        filtered_data = {asset: data_dict[asset] for asset in selected_assets if asset in data_dict}
-        fig = create_multi_asset_comparison(filtered_data, normalize_to_100=True)
-        if fig:
-            st.plotly_chart(fig, use_container_width=True)
-            
-            # Show summary statistics
-            with st.expander("Performance Summary"):
-                summary_data = []
-                for asset in selected_assets:
-                    if asset in data_dict and not data_dict[asset].empty:
-                        df = data_dict[asset]
-                        first_value = df['Value'].iloc[0]
-                        last_value = df['Value'].iloc[-1]
-                        total_return = (last_value / first_value - 1) * 100
-                        
-                        # Calculate volatility (annualized standard deviation of daily returns)
-                        daily_returns = df['Value'].pct_change().dropna()
-                        volatility = daily_returns.std() * np.sqrt(252) * 100  # Annualized
-                        
-                        summary_data.append({
-                            "Asset": asset,
-                            "Total Return": f"{total_return:.2f}%",
-                            "Final Value": f"{last_value / first_value * 100:.2f}",
-                            "Annualized Volatility": f"{volatility:.2f}%"
-                        })
+        if filtered_data_dict:
+            fig = create_multi_asset_comparison(filtered_data_dict, normalize_to_100=True)
+            if fig:
+                st.plotly_chart(fig, use_container_width=True)
                 
-                if summary_data:
-                    summary_df = pd.DataFrame(summary_data)
-                    st.dataframe(summary_df, use_container_width=True, hide_index=True)
+                # Show summary statistics
+                with st.expander("Performance Summary"):
+                    summary_data = []
+                    for asset in selected_assets:
+                        if asset in filtered_data_dict and not filtered_data_dict[asset].empty:
+                            df = filtered_data_dict[asset]
+                            if len(df) > 1:  # Need at least 2 data points
+                                first_value = df['Value'].iloc[0]
+                                last_value = df['Value'].iloc[-1]
+                                total_return = (last_value / first_value - 1) * 100
+                                
+                                # Calculate volatility (annualized standard deviation of daily returns)
+                                daily_returns = df['Value'].pct_change().dropna()
+                                volatility = daily_returns.std() * np.sqrt(252) * 100 if len(daily_returns) > 1 else 0
+                                
+                                summary_data.append({
+                                    "Asset": asset,
+                                    "Total Return": f"{total_return:.2f}%",
+                                    "Final Value": f"{last_value / first_value * 100:.2f}",
+                                    "Annualized Volatility": f"{volatility:.2f}%",
+                                    "Data Points": len(df)
+                                })
+                    
+                    if summary_data:
+                        summary_df = pd.DataFrame(summary_data)
+                        st.dataframe(summary_df, use_container_width=True, hide_index=True)
+                        
+                        # Show the date range information
+                        st.info(f"📅 Analysis period: from {start_date} to latest available data")
+        else:
+            st.warning("No data available for the selected assets and date range")
     
     elif viz_type == "Percentage Returns Comparison":
-        filtered_data = {asset: data_dict[asset] for asset in selected_assets if asset in data_dict}
-        fig = create_multi_asset_comparison(filtered_data, normalize_to_100=False)
-        if fig:
-            st.plotly_chart(fig, use_container_width=True)
+        if filtered_data_dict:
+            fig = create_multi_asset_comparison(filtered_data_dict, normalize_to_100=False)
+            if fig:
+                st.plotly_chart(fig, use_container_width=True)
+                st.info(f"📅 Analysis period: from {start_date} to latest available data")
+        else:
+            st.warning("No data available for the selected assets and date range")
     
     elif viz_type == "Data Quality Check":
         for asset in selected_assets:
-            if asset in data_dict and not data_dict[asset].empty:
-                st.subheader(f"Data Quality - {asset}")
-                df = data_dict[asset]
+            if asset in filtered_data_dict and not filtered_data_dict[asset].empty:
+                st.subheader(f"Data Quality - {asset} (from {start_date})")
+                df = filtered_data_dict[asset]
                 
                 date_col = 'Date' if 'Date' in df.columns else df.columns[0]
                 value_col = 'Value' if 'Value' in df.columns else df.columns[-1]
@@ -194,6 +272,8 @@ def display_data_explorer(data_dict: Dict[str, pd.DataFrame]):
                 fig = create_data_quality_plot(df, date_col, value_col)
                 if fig:
                     st.plotly_chart(fig, use_container_width=True)
+            elif asset in selected_assets:
+                st.warning(f"No data available for {asset} from {start_date}")
 
 def display_strategy_weights_table(weights_dict: Dict[str, float], 
                                  strategy_name: str = "Selected Strategy"):
