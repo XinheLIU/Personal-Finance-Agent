@@ -5,6 +5,55 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.3] - 2025-08-11
+
+### GUI Navigation & Multi-Asset Visualization Enhancements
+
+This release improves the Streamlit web interface with enhanced navigation and advanced multi-asset comparison capabilities.
+
+#### 🌐 Navigation Improvements
+- **Tab-Based Navigation**: Replaced sidebar dropdown with horizontal tab interface for all four main sections
+- **Direct Access**: Users can now click directly on any tab (Backtest, Portfolio, Data Explorer, System) instead of using dropdown
+- **Better UX**: More intuitive navigation with all options visible at once
+
+#### 📊 Enhanced Data Visualization
+- **Normalized Asset Comparison**: New visualization option to plot all selected assets starting at base value of 100
+- **Multi-Asset Performance Analysis**: Enhanced comparison charts with improved color palette and legend positioning  
+- **Performance Summary Statistics**: Automatic calculation of total returns, final values, and annualized volatility
+- **Flexible Normalization**: Support for both normalized (base=100) and percentage return comparisons
+
+#### 🔍 Data Explorer Enhancements
+- **New Visualization Types**:
+  - "Normalized Comparison (Start at 100)" - Primary option for easy asset comparison
+  - "Individual Time Series" - Traditional single-asset view
+  - "Percentage Returns Comparison" - Classic percentage return analysis
+  - "Data Quality Check" - Enhanced data validation visualization
+- **Interactive Statistics**: Expandable performance summary with key metrics
+- **Enhanced Tooltips**: Improved hover information with asset names, dates, and values
+
+#### 🎨 Visual Improvements
+- **Extended Color Palette**: Support for up to 12 distinct colors for multiple assets
+- **Better Legend Layout**: Right-side positioning for improved readability
+- **Professional Styling**: Enhanced chart appearance with clean templates
+- **Responsive Design**: Better container width utilization
+
+### Files Modified
+- `src/streamlit_app.py` - Converted navigation from sidebar dropdown to horizontal tabs
+- `src/visualization/plotting.py` - Enhanced multi-asset comparison with normalization options
+- `src/visualization/charts.py` - Added new visualization types and performance statistics
+
+### Technical Improvements
+- **Normalization Algorithm**: Robust asset comparison with common baseline at 100
+- **Statistical Analysis**: Automatic volatility and return calculations  
+- **Color Management**: Extended palette for better visual distinction
+- **Error Handling**: Improved data validation and missing data handling
+
+### User Experience
+- **Faster Navigation**: One-click access to all main sections
+- **Better Asset Comparison**: Easy visual comparison of multiple assets on common scale
+- **Professional Analytics**: Institutional-grade performance metrics and visualization
+- **Intuitive Interface**: More accessible and user-friendly design
+
 ## [0.3.2] - 2025-08-11
 
 ### Major System Architecture Transformation
