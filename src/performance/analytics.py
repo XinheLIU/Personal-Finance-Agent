@@ -495,13 +495,19 @@ class PerformanceAnalyzer:
     def _serialize_for_json(self, obj: Any) -> Any:
         """Convert objects to JSON-serializable format"""
         if isinstance(obj, pd.DataFrame):
-            return obj.to_dict()
+            # Convert DataFrame to dict and handle Timestamp columns
+            df_dict = obj.to_dict()
+            return self._serialize_for_json(df_dict)
         elif isinstance(obj, pd.Series):
-            return obj.to_dict()
+            return self._serialize_for_json(obj.to_dict())
         elif isinstance(obj, np.ndarray):
             return obj.tolist()
         elif isinstance(obj, (np.integer, np.floating)):
             return obj.item()
+        elif isinstance(obj, pd.Timestamp):
+            return obj.isoformat()
+        elif isinstance(obj, datetime):
+            return obj.isoformat()
         elif isinstance(obj, dict):
             return {key: self._serialize_for_json(value) for key, value in obj.items()}
         elif isinstance(obj, list):

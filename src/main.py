@@ -45,6 +45,8 @@ Examples:
   %(prog)s --strategy MyStrategy     # Run specific strategy
   %(prog)s --list-strategies         # List all strategies
   %(prog)s --download-data           # Download market data
+  %(prog)s --attribution "Dynamic Allocation" --attribution-period weekly
+  %(prog)s --export-attribution "My Strategy"
         """
     )
     
@@ -85,6 +87,15 @@ Examples:
     parser.add_argument('--validate', action='store_true',
                        help='Validate system configuration')
     
+    # Attribution analysis options
+    parser.add_argument('--attribution', type=str, metavar='STRATEGY',
+                       help='Run performance attribution analysis for specified strategy')
+    parser.add_argument('--attribution-period', type=str, default='daily',
+                       choices=['daily', 'weekly', 'monthly'],
+                       help='Attribution analysis period (default: daily)')
+    parser.add_argument('--export-attribution', type=str, metavar='STRATEGY',
+                       help='Export attribution data for specified strategy')
+    
     args = parser.parse_args()
     
     # Configure debug logging if requested
@@ -112,6 +123,22 @@ Examples:
     if args.validate:
         validate_system_configuration()
         return
+    
+    # Attribution analysis commands
+    if args.attribution:
+        from src.cli import run_attribution_analysis
+        print(f"🔍 Running attribution analysis for: {args.attribution}")
+        success = run_attribution_analysis(
+            args.attribution,
+            period=args.attribution_period
+        )
+        sys.exit(0 if success else 1)
+    
+    if args.export_attribution:
+        from src.cli import export_attribution_data
+        print(f"📤 Exporting attribution data for: {args.export_attribution}")
+        success = export_attribution_data(args.export_attribution)
+        sys.exit(0 if success else 1)
     
     # System startup if requested
     if args.startup or args.mode in ['gui', 'cli']:

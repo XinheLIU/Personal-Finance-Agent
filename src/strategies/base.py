@@ -18,8 +18,14 @@ class BaseStrategy(bt.Strategy):
         self.portfolio_values = []
         self.portfolio_dates = []
         self.rebalance_log = []
+        # Track weights evolution for attribution analysis
+        self.weights_evolution = []
         # Stores last weight calculation breakdown for transparency
         self.last_weight_calc_details: Optional[Dict[str, Any]] = None
+        # Track last rebalance positions for richer logging
+        self.last_rebalance_bar_index: int = 0
+        self.last_rebalance_calendar_date = None
+    
         
     def next(self):
         """Common next() implementation for all strategies"""
@@ -27,6 +33,12 @@ class BaseStrategy(bt.Strategy):
         portfolio_value = self.broker.getvalue()
         self.portfolio_values.append(portfolio_value)
         self.portfolio_dates.append(current_date)
+        
+        # Capture weights evolution for attribution analysis
+        current_weights = self.get_current_weights()
+        weights_entry = {'date': current_date}
+        weights_entry.update(current_weights)
+        self.weights_evolution.append(weights_entry)
         
     def get_current_weights(self) -> Dict[str, float]:
         """Get current portfolio weights"""
@@ -42,7 +54,7 @@ class BaseStrategy(bt.Strategy):
                 weights[data._name] = 0.0
         return weights
     
-    def rebalance_portfolio(self, target_weights: Dict[str, float]):
+    def rebalance_portfolio(self, target_weights: Dict[str, float], rebalance_context: Optional[Dict[str, Any]] = None):
         """Rebalance portfolio to target weights"""
         total_value = self.broker.getvalue()
         transactions = []
@@ -85,11 +97,16 @@ class BaseStrategy(bt.Strategy):
                 'rebalance_days': getattr(self.params, 'rebalance_days', None),
                 'threshold': getattr(self.params, 'threshold', None),
             }
+            # Attach context about time vs trading-day gaps and trigger reasons
+            if rebalance_context:
+                rebalance_details.update(rebalance_context)
             for asset, weight in target_weights.items():
                 rebalance_details[f'{asset}_target_weight'] = weight
             # Attach calculation details if provided by strategy implementation
             if getattr(self, 'last_weight_calc_details', None) is not None:
                 rebalance_details['calculation_details'] = self.last_weight_calc_details
+            # Store target weights for rebalancing log
+            rebalance_details['target_weights'] = target_weights.copy()
             self.rebalance_log.append(rebalance_details)
 
 class StaticAllocationStrategy(BaseStrategy):
@@ -99,6 +116,7 @@ class StaticAllocationStrategy(BaseStrategy):
     params = (
         ('rebalance_days', 30),
         ('threshold', 0.05),
+        ('rebalance_basis', 'trading'),  # 'trading' or 'calendar'
     )
     
     def __init__(self):
@@ -107,6 +125,14 @@ class StaticAllocationStrategy(BaseStrategy):
         
     def get_target_weights(self) -> Dict[str, float]:
         """Override this method to provide target weights"""
+        return {}
+    
+    @classmethod 
+    def get_static_target_weights(cls) -> Dict[str, float]:
+        """
+        Get target weights without requiring instantiation.
+        Override in subclasses for static strategies.
+        """
         return {}
     
     def need_rebalancing(self, target_weights: Dict[str, float], current_weights: Dict[str, float]) -> bool:
@@ -121,7 +147,18 @@ class StaticAllocationStrategy(BaseStrategy):
     def next(self):
         super().next()
         
-        if (len(self) - self.last_rebalance >= self.params.rebalance_days) or len(self) == 1:
+        # Determine if time gate allows rebalancing based on basis
+        current_date = self.datas[0].datetime.date(0)
+        if self.params.rebalance_basis == 'calendar':
+            days_since_last = (current_date - self.last_rebalance_calendar_date).days if self.last_rebalance_calendar_date else 0
+            time_gate_met = (days_since_last >= self.params.rebalance_days) or len(self) == 1
+        else:
+            time_gate_met = ((len(self) - self.last_rebalance) >= self.params.rebalance_days) or len(self) == 1
+
+        if time_gate_met:
+            # Compute gaps
+            bars_since_last = (len(self) - self.last_rebalance) if self.last_rebalance > 0 else len(self)
+            days_since_last = (current_date - self.last_rebalance_calendar_date).days if self.last_rebalance_calendar_date else 0
             target_weights = self.get_target_weights()
             # For static strategies, record simple calculation details
             self.last_weight_calc_details = {
@@ -136,9 +173,20 @@ class StaticAllocationStrategy(BaseStrategy):
             }
             current_weights = self.get_current_weights()
             
-            if self.need_rebalancing(target_weights, current_weights) or len(self) == 1:
-                self.rebalance_portfolio(target_weights)
+            threshold_trigger = self.need_rebalancing(target_weights, current_weights)
+            if threshold_trigger or len(self) == 1:
+                context = {
+                    'trigger_type': 'initial' if len(self) == 1 else 'scheduled_threshold',
+                    'bars_since_last_rebalance': bars_since_last,
+                    'natural_days_since_last_rebalance': days_since_last,
+                    'basis': 'calendar_days' if self.params.rebalance_basis == 'calendar' else 'trading_days',
+                    'configured_rebalance_days': int(self.params.rebalance_days),
+                    'time_gate_met': bool(time_gate_met),
+                    'note': 'Gaps may differ depending on trading vs calendar day basis; actual execution occurs on next available trading day.'
+                }
+                self.rebalance_portfolio(target_weights, rebalance_context=context)
                 self.last_rebalance = len(self)
+                self.last_rebalance_calendar_date = current_date
 
 class DynamicStrategy(BaseStrategy):
     """
@@ -147,6 +195,7 @@ class DynamicStrategy(BaseStrategy):
     params = (
         ('rebalance_days', 30),
         ('threshold', 0.05),
+        ('rebalance_basis', 'trading'),  # 'trading' or 'calendar'
     )
     
     def __init__(self):
@@ -161,15 +210,36 @@ class DynamicStrategy(BaseStrategy):
     def next(self):
         super().next()
         
-        if (len(self) - self.last_rebalance >= self.params.rebalance_days) or len(self) == 1:
-            current_date = self.datas[0].datetime.date(0)
+        # Determine if time gate allows rebalancing based on basis
+        current_date = self.datas[0].datetime.date(0)
+        if self.params.rebalance_basis == 'calendar':
+            days_since_last = (current_date - self.last_rebalance_calendar_date).days if self.last_rebalance_calendar_date else 0
+            time_gate_met = (days_since_last >= self.params.rebalance_days) or len(self) == 1
+        else:
+            time_gate_met = ((len(self) - self.last_rebalance) >= self.params.rebalance_days) or len(self) == 1
+
+        if time_gate_met:
+            # Compute gaps
+            bars_since_last = (len(self) - self.last_rebalance) if self.last_rebalance > 0 else len(self)
+            days_since_last = (current_date - self.last_rebalance_calendar_date).days if self.last_rebalance_calendar_date else 0
             try:
                 target_weights = self.calculate_target_weights(current_date)
                 current_weights = self.get_current_weights()
                 
-                if len(self) == 1 or self.need_rebalancing_dynamic(target_weights, current_weights):
-                    self.rebalance_portfolio(target_weights)
+                threshold_trigger = self.need_rebalancing_dynamic(target_weights, current_weights)
+                if len(self) == 1 or threshold_trigger:
+                    context = {
+                        'trigger_type': 'initial' if len(self) == 1 else 'scheduled_threshold',
+                        'bars_since_last_rebalance': bars_since_last,
+                        'natural_days_since_last_rebalance': days_since_last,
+                        'basis': 'calendar_days' if self.params.rebalance_basis == 'calendar' else 'trading_days',
+                        'configured_rebalance_days': int(self.params.rebalance_days),
+                        'time_gate_met': bool(time_gate_met),
+                        'note': 'Gaps may differ depending on trading vs calendar day basis; actual execution occurs on next available trading day.'
+                    }
+                    self.rebalance_portfolio(target_weights, rebalance_context=context)
                     self.last_rebalance = len(self)
+                    self.last_rebalance_calendar_date = current_date
             except Exception as e:
                 print(f"Strategy execution failed on {current_date}: {e}")
                 raise
@@ -191,9 +261,22 @@ class FixedWeightStrategy(StaticAllocationStrategy):
     params = (
         ('rebalance_days', 30),
         ('threshold', 0.05),
+        ('rebalance_basis', 'trading'),  # 'trading' or 'calendar'
         ('target_weights', {}),
     )
     
     def get_target_weights(self) -> Dict[str, float]:
         """Return the fixed target weights"""
         return self.params.target_weights
+
+# Add method to BaseStrategy after all subclasses are defined
+def _get_strategy_type(cls) -> str:
+    """Get the type of strategy (static/dynamic)"""
+    if issubclass(cls, StaticAllocationStrategy):
+        return "static"
+    elif issubclass(cls, DynamicStrategy):
+        return "dynamic"
+    else:
+        return "unknown"
+
+BaseStrategy.get_strategy_type = classmethod(_get_strategy_type)

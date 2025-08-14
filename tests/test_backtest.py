@@ -2,7 +2,7 @@
 import unittest
 import os
 from src.backtesting.runner import run_backtest
-from src.strategies.legacy import (
+from src.strategies.classic import (
     DynamicAllocationStrategy,
     BuyAndHoldStrategy,
     SixtyFortyStrategy,

@@ -28,6 +28,70 @@ def get_data_range_info(df):
     return start_date, end_date
 
 # Data download functions
+def _merge_with_existing_and_save(dir_path, asset_name, data_type, df, date_col='date'):
+    """
+    Merge newly downloaded df with any existing files for this asset and data_type,
+    preserving older time periods (override duplicates by newest), then save a single
+    consolidated file named with the merged date range.
+    """
+    try:
+        os.makedirs(dir_path, exist_ok=True)
+        # Normalize date column
+        if date_col not in df.columns:
+            # Try common variants
+            if 'Date' in df.columns:
+                df = df.rename(columns={'Date': 'date'})
+            elif '日期' in df.columns:
+                df = df.rename(columns={'日期': 'date'})
+        # Ensure datetime
+        if not pd.api.types.is_datetime64_any_dtype(df['date']):
+            df['date'] = pd.to_datetime(df['date'])
+
+        # Gather existing files and merge
+        pattern = os.path.join(dir_path, f"{asset_name}_{data_type}_*.csv")
+        existing_files = sorted(glob.glob(pattern))
+        frames = [df]
+        for fpath in existing_files:
+            try:
+                old = pd.read_csv(fpath)
+                if 'date' not in old.columns:
+                    if 'Date' in old.columns:
+                        old = old.rename(columns={'Date': 'date'})
+                    elif '日期' in old.columns:
+                        old = old.rename(columns={'日期': 'date'})
+                if pd.api.types.is_datetime64_any_dtype(old['date']) is False:
+                    old['date'] = pd.to_datetime(old['date'])
+                frames.append(old)
+            except Exception as read_err:
+                LOG.warning(f"Skipping unreadable file during merge: {fpath} ({read_err})")
+                continue
+
+        merged = pd.concat(frames, ignore_index=True, sort=False)
+        # Deduplicate by date, keep the last occurrence (newest download wins)
+        merged = merged.sort_values('date')
+        merged = merged.drop_duplicates(subset=['date'], keep='last')
+        merged = merged.sort_values('date').reset_index(drop=True)
+
+        # Save consolidated file
+        start_date = merged['date'].min().strftime('%Y%m%d')
+        end_date = merged['date'].max().strftime('%Y%m%d')
+        out_name = f"{asset_name}_{data_type}_{start_date}_to_{end_date}.csv"
+        out_path = os.path.join(dir_path, out_name)
+        merged.to_csv(out_path, index=False)
+        LOG.info(f"Saved consolidated {asset_name} {data_type} to {out_path} ({len(merged)} records)")
+        return out_path, start_date, end_date
+    except Exception as e:
+        LOG.error(f"Failed to merge and save {asset_name} {data_type}: {e}")
+        # Fallback to saving only the new df
+        start_date = df['date'].min().strftime('%Y%m%d')
+        end_date = df['date'].max().strftime('%Y%m%d')
+        out_name = f"{asset_name}_{data_type}_{start_date}_to_{end_date}.csv"
+        out_path = os.path.join(dir_path, out_name)
+        df.to_csv(out_path, index=False)
+        LOG.info(f"Saved (no-merge fallback) {asset_name} {data_type} to {out_path} ({len(df)} records)")
+        return out_path, start_date, end_date
+
+
 def download_yfinance_data(ticker, asset_name):
     """Download price data from Yahoo Finance"""
     try:
@@ -47,16 +111,9 @@ def download_yfinance_data(ticker, asset_name):
         data.reset_index(inplace=True)
         data.rename(columns={'Date': 'date'}, inplace=True)
         
-        # Save to file
-        os.makedirs('data/raw/price', exist_ok=True)
-        start_date = data['date'].min().strftime('%Y%m%d')
-        end_date = data['date'].max().strftime('%Y%m%d')
-        filename = f"{asset_name}_price_{start_date}_to_{end_date}.csv"
-        filepath = os.path.join('data/raw/price', filename)
-        
-        data.to_csv(filepath, index=False)
-        LOG.info(f"Saved {asset_name} data to {filepath} ({len(data)} records)")
-        
+        # Merge with existing and save consolidated
+        price_dir = 'data/raw/price'
+        filepath, start_date, end_date = _merge_with_existing_and_save(price_dir, asset_name, 'price', data, 'date')
         return filepath, start_date, end_date
         
     except Exception as e:
@@ -83,16 +140,9 @@ def download_akshare_index(symbol, asset_name):
         # Convert date column to datetime
         data['date'] = pd.to_datetime(data['date'])
         
-        # Save to file
-        os.makedirs('data/raw/price', exist_ok=True)
-        start_date = data['date'].min().strftime('%Y%m%d')
-        end_date = data['date'].max().strftime('%Y%m%d')
-        filename = f"{asset_name}_price_{start_date}_to_{end_date}.csv"
-        filepath = os.path.join('data/raw/price', filename)
-        
-        data.to_csv(filepath, index=False)
-        LOG.info(f"Saved {asset_name} data to {filepath} ({len(data)} records)")
-        
+        # Merge with existing and save consolidated
+        price_dir = 'data/raw/price'
+        filepath, start_date, end_date = _merge_with_existing_and_save(price_dir, asset_name, 'price', data, 'date')
         return filepath, start_date, end_date
         
     except Exception as e:
@@ -139,13 +189,9 @@ def download_all_assets(refresh=False):
             yield_data.reset_index(inplace=True)
             yield_data.rename(columns={'Date': 'date'}, inplace=True)
             
-            os.makedirs('data/raw/yield', exist_ok=True)
-            start_date = yield_data['date'].min().strftime('%Y%m%d')
-            end_date = yield_data['date'].max().strftime('%Y%m%d')
-            filename = f"US10Y_yield_{start_date}_to_{end_date}.csv"
-            filepath = os.path.join('data/raw/yield', filename)
-            
-            yield_data.to_csv(filepath, index=False)
+            # Merge with existing and save consolidated
+            yield_dir = 'data/raw/yield'
+            filepath, start_date, end_date = _merge_with_existing_and_save(yield_dir, 'US10Y', 'yield', yield_data, 'date')
             LOG.info(f"Saved US 10Y yield data to {filepath} ({len(yield_data)} records)")
             successful_downloads += 1
         else:
@@ -182,13 +228,9 @@ def download_pe_data():
                         processed_data.columns = ['date', 'pe_ratio']
                         processed_data['date'] = pd.to_datetime(processed_data['date'])
                         
-                        os.makedirs('data/raw/pe', exist_ok=True)
-                        start_date = processed_data['date'].min().strftime('%Y%m%d')
-                        end_date = processed_data['date'].max().strftime('%Y%m%d')
-                        filename = f"{asset_name}_pe_{start_date}_to_{end_date}.csv"
-                        filepath = os.path.join('data/raw/pe', filename)
-                        
-                        processed_data.to_csv(filepath, index=False)
+                        # Merge with existing and save consolidated
+                        pe_dir = 'data/raw/pe'
+                        filepath, start_date, end_date = _merge_with_existing_and_save(pe_dir, asset_name, 'pe', processed_data, 'date')
                         LOG.info(f"Saved {asset_name} P/E data to {filepath} ({len(processed_data)} records)")
                     
             elif akshare_source == 'MARKET_PE':
@@ -203,13 +245,9 @@ def download_pe_data():
                         processed_data.columns = ['date', 'pe_ratio']
                         processed_data['date'] = pd.to_datetime(processed_data['date'])
                         
-                        os.makedirs('data/raw/pe', exist_ok=True)
-                        start_date = processed_data['date'].min().strftime('%Y%m%d')
-                        end_date = processed_data['date'].max().strftime('%Y%m%d')
-                        filename = f"{asset_name}_pe_{start_date}_to_{end_date}.csv"
-                        filepath = os.path.join('data/raw/pe', filename)
-                        
-                        processed_data.to_csv(filepath, index=False)
+                        # Merge with existing and save consolidated
+                        pe_dir = 'data/raw/pe'
+                        filepath, start_date, end_date = _merge_with_existing_and_save(pe_dir, asset_name, 'pe', processed_data, 'date')
                         LOG.info(f"Saved {asset_name} P/E data to {filepath} ({len(processed_data)} records)")
             
             # For manual files, just log that they should be downloaded manually

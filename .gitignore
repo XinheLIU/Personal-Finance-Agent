@@ -8,6 +8,7 @@
 # Cursor IDE files
 .cursorrules
 GEMINI.md
+/.serena
 
 # Strategy specification files
 user-strategy.md
@@ -229,7 +230,3 @@ data/*.json
 
 # Keep data directory structure
 !data/.gitkeep 
-GEMINI.md
-/.Claude
-CLAUDE.md
-/.serena

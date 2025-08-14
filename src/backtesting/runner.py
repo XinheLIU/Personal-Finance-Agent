@@ -12,7 +12,7 @@ from src.performance.analytics import PerformanceAnalyzer
 from config import INITIAL_CAPITAL, COMMISSION, ASSETS
 from src.data_center.data_loader import load_market_data, load_data_feed
 
-def run_backtest(strategy_class, strategy_name, start_date=None, end_date=None, **kwargs):
+def run_backtest(strategy_class, strategy_name, start_date=None, end_date=None, initial_capital=None, commission=None, enable_attribution=False, **kwargs):
     """
     Run a backtest for a given strategy.
     
@@ -21,6 +21,9 @@ def run_backtest(strategy_class, strategy_name, start_date=None, end_date=None, 
         strategy_name: Name of the strategy for display purposes
         start_date: Start date for backtest (optional)
         end_date: End date for backtest (optional)
+        initial_capital: Override initial capital (optional)
+        commission: Override commission rate (optional)
+        enable_attribution: Enable performance attribution analysis
         **kwargs: Additional parameters for the strategy
     
     Returns:
@@ -37,8 +40,11 @@ def run_backtest(strategy_class, strategy_name, start_date=None, end_date=None, 
         
         # Create cerebro engine
         cerebro = bt.Cerebro()
-        cerebro.broker.setcash(INITIAL_CAPITAL)
-        cerebro.broker.setcommission(commission=COMMISSION)
+        # Allow overrides from caller (e.g., Streamlit UI); default to config values
+        broker_initial_cash = float(INITIAL_CAPITAL) if initial_capital is None else float(initial_capital)
+        broker_commission = float(COMMISSION) if commission is None else float(commission)
+        cerebro.broker.setcash(broker_initial_cash)
+        cerebro.broker.setcommission(commission=broker_commission)
         # Ensure orders execute deterministically on the same bar when needed
         try:
             cerebro.broker.set_coc(True)
@@ -48,6 +54,7 @@ def run_backtest(strategy_class, strategy_name, start_date=None, end_date=None, 
         # Add data feeds using loader (ensures proper columns/mapping)
         earliest_start = None
         latest_end = None
+        asset_returns_data = {}  # For attribution analysis
 
         for asset_name in ASSETS.keys():
             try:
@@ -66,6 +73,12 @@ def run_backtest(strategy_class, strategy_name, start_date=None, end_date=None, 
                         earliest_start = df.index.min()
                     if latest_end is None or df.index.max() > latest_end:
                         latest_end = df.index.max()
+                    
+                    # Capture asset returns for attribution analysis
+                    if enable_attribution and 'close' in df.columns:
+                        asset_returns = df['close'].pct_change().dropna()
+                        asset_returns_data[asset_name] = asset_returns
+                        
             except Exception as e:
                 LOG.warning(f"Failed to load data feed for {asset_name}: {e}")
                 continue
@@ -162,11 +175,10 @@ def run_backtest(strategy_class, strategy_name, start_date=None, end_date=None, 
             # Ensure backtests directory exists
             log_dir = Path('analytics') / 'backtests'
             log_dir.mkdir(parents=True, exist_ok=True)
-            # Sanitize strategy name for filename
-            safe_strategy_name = strategy_name.replace('/', '_').replace(' ', '_')
-            from datetime import datetime
-            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            log_file = log_dir / f'{safe_strategy_name}_rebalance_log_{timestamp}.csv'
+            # Sanitize strategy name for filename (lower_snake_case)
+            safe_strategy_name = strategy_name.replace('/', '_').replace(' ', '_').lower()
+            # Overwrite a single CSV per strategy
+            log_file = log_dir / f'{safe_strategy_name}_rebalance_log.csv'
             log_df.to_csv(log_file, index=False)
             LOG.info(f"Rebalancing log saved to {log_file}")
             backtest_results['rebalance_log'] = str(log_file)
@@ -188,6 +200,8 @@ def run_backtest(strategy_class, strategy_name, start_date=None, end_date=None, 
                     'value': values
                 })
                 portfolio_df['returns'] = portfolio_df['value'].pct_change()
+                # Set date as index for attribution analysis compatibility
+                portfolio_df.set_index('date', inplace=True)
                 # Cache DataFrame in results for performance analytics
                 backtest_results['portfolio_evolution'] = portfolio_df
 
@@ -211,6 +225,76 @@ def run_backtest(strategy_class, strategy_name, start_date=None, end_date=None, 
                 backtest_results['performance_report'] = performance_report
         except Exception as e:
             LOG.warning(f"Failed to generate performance report: {e}")
+        
+        # Perform attribution analysis if enabled
+        if enable_attribution:
+            try:
+                from src.performance.attribution import PerformanceAttributor
+                
+                # Check if we have necessary data for attribution
+                portfolio_data = backtest_results.get('portfolio_evolution')
+                
+                # Create asset returns DataFrame from captured data
+                if asset_returns_data:
+                    asset_returns_df = pd.DataFrame(asset_returns_data)
+                    backtest_results['asset_returns'] = asset_returns_df
+                else:
+                    asset_returns_df = None
+                
+                # Extract weights evolution if available
+                weights_df = None
+                if hasattr(strat, 'weights_evolution') and strat.weights_evolution:
+                    weights_df = pd.DataFrame(strat.weights_evolution)
+                    if 'date' in weights_df.columns:
+                        weights_df['date'] = pd.to_datetime(weights_df['date'])
+                        weights_df.set_index('date', inplace=True)
+                elif hasattr(strat, 'rebalance_log') and strat.rebalance_log:
+                    # Reconstruct weights from rebalancing log
+                    weights_data = []
+                    for rebal_entry in strat.rebalance_log:
+                        if 'target_weights' in rebal_entry:
+                            weights_entry = {'date': rebal_entry['date']}
+                            weights_entry.update(rebal_entry['target_weights'])
+                            weights_data.append(weights_entry)
+                    
+                    if weights_data:
+                        weights_df = pd.DataFrame(weights_data)
+                        weights_df['date'] = pd.to_datetime(weights_df['date'])
+                        weights_df.set_index('date', inplace=True)
+                
+                # Run attribution analysis if we have required data
+                if all(data is not None for data in [portfolio_data, asset_returns_df, weights_df]):
+                    attributor = PerformanceAttributor()
+                    attribution_report = attributor.generate_attribution_report(
+                        strategy_name=strategy_name,
+                        portfolio_data=portfolio_data,
+                        asset_returns=asset_returns_df,
+                        weights_data=weights_df,
+                        include_weekly=True,
+                        include_monthly=True
+                    )
+                    
+                    if 'error' not in attribution_report:
+                        backtest_results['attribution_analysis'] = attribution_report
+                        LOG.info(f"Performance attribution analysis completed for {strategy_name}")
+                    else:
+                        LOG.warning(f"Attribution analysis failed: {attribution_report['error']}")
+                        backtest_results['attribution_error'] = attribution_report['error']
+                else:
+                    missing_data = []
+                    if portfolio_data is None:
+                        missing_data.append('portfolio_data')
+                    if asset_returns_df is None:
+                        missing_data.append('asset_returns')
+                    if weights_df is None:
+                        missing_data.append('weights_evolution')
+                    
+                    LOG.warning(f"Attribution analysis skipped - missing data: {', '.join(missing_data)}")
+                    backtest_results['attribution_error'] = f"Missing data for attribution: {', '.join(missing_data)}"
+                        
+            except Exception as e:
+                LOG.error(f"Performance attribution analysis error: {e}")
+                backtest_results['attribution_error'] = str(e)
         
         LOG.info(f"Backtest completed successfully for {strategy_name}")
         return backtest_results

@@ -5,11 +5,10 @@ These strategies adjust allocation based on market conditions.
 from src.strategies.base import DynamicStrategy
 from src.app_logger import LOG
 from src.strategies.utils import (
-    calculate_pe_percentile_with_details,
-    calculate_yield_percentile,
-    get_current_yield,
+    pe_percentile_from_processed,
+    yield_percentile_from_processed,
+    current_yield_from_processed,
 )
-from src.data_center.data_loader import load_market_data, load_pe_data
 from typing import Dict
 import pandas as pd
 
@@ -22,18 +21,11 @@ class DynamicAllocationStrategy(DynamicStrategy):
         # Use processed data instead of raw data
         from src.data_center.data_processor import get_processed_data, process_strategy_data
         
-        # Ensure processed data exists for dynamic allocation
+        # Ensure processed data exists for dynamic allocation; fail-fast if missing
         if not process_strategy_data('dynamic_allocation'):
-            LOG.warning("Failed to process data for dynamic allocation, falling back to raw data")
-            self.market_data = load_market_data()
-            self.pe_cache = load_pe_data()
-            self.processed_data = None
-        else:
-            # Load strategy-specific processed data
-            self.processed_data = get_processed_data('dynamic_allocation')
-            # Keep backward compatibility for now
-            self.market_data = load_market_data()
-            self.pe_cache = load_pe_data()
+            raise RuntimeError("Processed data for 'dynamic_allocation' could not be generated. Please run data processing.")
+        # Load strategy-specific processed data
+        self.processed_data = get_processed_data('dynamic_allocation')
         
     def calculate_target_weights(self, current_date) -> Dict[str, float]:
         """Calculate target weights based on P/E percentiles and yield data"""
@@ -41,17 +33,17 @@ class DynamicAllocationStrategy(DynamicStrategy):
         pe_percentiles = {}
         
         try:
-            # Calculate PE percentiles for equity assets with detailed inputs
+            # Calculate PE percentiles for equity assets with processed data
             pe_details_map = {}
-            pe_percentiles['CSI300'], pe_details_map['CSI300'] = calculate_pe_percentile_with_details('CSI300', self.pe_cache, current_date, 10)
-            pe_percentiles['CSI500'], pe_details_map['CSI500'] = calculate_pe_percentile_with_details('CSI500', self.pe_cache, current_date, 10)
-            pe_percentiles['HSI'], pe_details_map['HSI'] = calculate_pe_percentile_with_details('HSI', self.pe_cache, current_date, 10)
-            pe_percentiles['HSTECH'], pe_details_map['HSTECH'] = calculate_pe_percentile_with_details('HSTECH', self.pe_cache, current_date, 10)
-            pe_percentiles['SP500'], pe_details_map['SP500'] = calculate_pe_percentile_with_details('SP500', self.pe_cache, current_date, 20)
-            pe_percentiles['NASDAQ100'], pe_details_map['NASDAQ100'] = calculate_pe_percentile_with_details('NASDAQ100', self.pe_cache, current_date, 20)
-            
-            yield_pct = calculate_yield_percentile(self.market_data, current_date, 20)
-            current_yield = get_current_yield(self.market_data, current_date)
+            pe_percentiles['CSI300'], pe_details_map['CSI300'] = pe_percentile_from_processed(self.processed_data, 'CSI300', current_date, 10)
+            pe_percentiles['CSI500'], pe_details_map['CSI500'] = pe_percentile_from_processed(self.processed_data, 'CSI500', current_date, 10)
+            pe_percentiles['HSI'], pe_details_map['HSI'] = pe_percentile_from_processed(self.processed_data, 'HSI', current_date, 10)
+            pe_percentiles['HSTECH'], pe_details_map['HSTECH'] = pe_percentile_from_processed(self.processed_data, 'HSTECH', current_date, 10)
+            pe_percentiles['SP500'], pe_details_map['SP500'] = pe_percentile_from_processed(self.processed_data, 'SP500', current_date, 20)
+            pe_percentiles['NASDAQ100'], pe_details_map['NASDAQ100'] = pe_percentile_from_processed(self.processed_data, 'NASDAQ100', current_date, 20)
+
+            yield_pct = yield_percentile_from_processed(self.processed_data, current_date, 20)
+            current_yield = current_yield_from_processed(self.processed_data, current_date)
             
             # Dynamic allocation based on P/E percentiles
             raw_weights = {}
@@ -101,10 +93,9 @@ class DynamicAllocationStrategy(DynamicStrategy):
             return weights
             
         except Exception as e:
-            # Fallback to equal weights if calculation fails
-            assets = [data._name for data in self.datas]
-            LOG.warning(f"DynamicAllocationStrategy calculation failed on {current_date}: {e}. Falling back to equal weights.")
-            return {asset: 1.0/len(assets) for asset in assets}
+            # Fail fast to surface data issues; do not silently use raw data
+            LOG.error(f"DynamicAllocationStrategy calculation failed on {current_date}: {e}")
+            raise
 
 class MomentumStrategy(DynamicStrategy):
     """

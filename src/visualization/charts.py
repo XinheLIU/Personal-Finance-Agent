@@ -340,3 +340,252 @@ def create_metrics_dashboard(backtest_results: Dict):
             if k not in ['portfolio_dates', 'portfolio_values']
         ])
         st.dataframe(metrics_df, hide_index=True)
+
+def display_attribution_analysis(attribution_data: Dict, strategy_name: str):
+    """Display performance attribution analysis with interactive visualizations."""
+    if not attribution_data or 'error' in attribution_data:
+        st.error(f"Attribution analysis failed: {attribution_data.get('error', 'Unknown error')}")
+        return
+    
+    st.subheader("📊 Performance Attribution Analysis")
+    
+    # Attribution period selection
+    available_periods = []
+    if 'daily_analysis' in attribution_data:
+        available_periods.append('Daily')
+    if 'weekly_analysis' in attribution_data:
+        available_periods.append('Weekly')
+    if 'monthly_analysis' in attribution_data:
+        available_periods.append('Monthly')
+    
+    if not available_periods:
+        st.warning("No attribution periods available for analysis")
+        return
+    
+    # Let user select attribution period
+    selected_period = st.selectbox(
+        "Select Attribution Period:",
+        options=available_periods,
+        help="Choose the time period for attribution analysis"
+    )
+    
+    period_key = f"{selected_period.lower()}_analysis"
+    if period_key not in attribution_data:
+        st.error(f"No {selected_period.lower()} attribution data available")
+        return
+    
+    period_data = attribution_data[period_key]
+    
+    # Summary Statistics
+    col1, col2, col3, col4 = st.columns(4)
+    
+    summary_stats = period_data.get('summary_statistics', {})
+    
+    with col1:
+        st.metric(
+            "Total Portfolio Return", 
+            f"{float(summary_stats.get('total_portfolio_return', 0)):.1%}"
+        )
+    
+    with col2:
+        st.metric(
+            "Total Asset Contribution", 
+            f"{float(summary_stats.get('total_asset_contribution', 0)):.1%}"
+        )
+    
+    with col3:
+        st.metric(
+            "Total Rebalancing Impact", 
+            f"{float(summary_stats.get('total_rebalancing_impact', 0)):.1%}"
+        )
+    
+    with col4:
+        st.metric(
+            "Attribution Accuracy", 
+            f"{float(summary_stats.get('attribution_accuracy', 0)):.2%}",
+            help="Lower is better - measures attribution reconciliation quality"
+        )
+    
+    # Create two columns for charts
+    chart_col1, chart_col2 = st.columns(2)
+    
+    # Top Contributors Chart
+    with chart_col1:
+        st.subheader("Top Contributors")
+        top_contributors = period_data.get('top_contributors', {})
+        
+        if top_contributors:
+            contrib_data = []
+            for asset, data in top_contributors.items():
+                contrib_data.append({
+                    'Asset': str(asset),
+                    'Net Impact': float(data.get('net_impact', 0)),
+                    'Asset Contribution': float(data.get('total_contribution', 0)),
+                    'Rebalancing Impact': float(data.get('total_rebalancing_impact', 0))
+                })
+            
+            contrib_df = pd.DataFrame(contrib_data)
+            
+            # Create stacked bar chart
+            fig = go.Figure(data=[
+                go.Bar(
+                    name='Asset Contribution',
+                    x=contrib_df['Asset'],
+                    y=contrib_df['Asset Contribution'],
+                    marker_color='lightblue'
+                ),
+                go.Bar(
+                    name='Rebalancing Impact',
+                    x=contrib_df['Asset'],
+                    y=contrib_df['Rebalancing Impact'],
+                    marker_color='orange'
+                )
+            ])
+            
+            fig.update_layout(
+                title=f"{selected_period} Attribution Breakdown",
+                xaxis_title="Assets",
+                yaxis_title="Contribution",
+                barmode='stack',
+                height=400
+            )
+            
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("No contribution data available")
+    
+    # Asset Analysis Table
+    with chart_col2:
+        st.subheader("Asset-Level Analysis")
+        asset_analysis = period_data.get('asset_analysis', {})
+        
+        if asset_analysis:
+            analysis_data = []
+            for asset, data in asset_analysis.items():
+                # Convert numpy types to native Python types to fix Arrow serialization
+                total_contrib = float(data.get('total_contribution', 0))
+                avg_contrib = float(data.get('average_contribution', 0))
+                rebal_impact = float(data.get('total_rebalancing_impact', 0))
+                net_impact = float(data.get('net_impact', 0))
+                
+                analysis_data.append({
+                    'Asset': str(asset),  # Ensure asset name is string
+                    'Total Contribution': f"{total_contrib:.3%}",
+                    'Avg Contribution': f"{avg_contrib:.3%}",
+                    'Rebalancing Impact': f"{rebal_impact:.3%}",
+                    'Net Impact': f"{net_impact:.3%}"
+                })
+            
+            analysis_df = pd.DataFrame(analysis_data)
+            st.dataframe(analysis_df, use_container_width=True, hide_index=True)
+        else:
+            st.info("No asset analysis data available")
+    
+    # Detailed Attribution Time Series
+    st.subheader("Attribution Time Series")
+    attribution_records = period_data.get('attribution_data', [])
+    
+    if attribution_records:
+        ts_df = pd.DataFrame(attribution_records)
+        ts_df['date'] = pd.to_datetime(ts_df['date'])
+        
+        # Create time series chart of total returns vs attribution components
+        fig = go.Figure()
+        
+        if 'total_return' in ts_df.columns:
+            fig.add_trace(go.Scatter(
+                x=ts_df['date'],
+                y=ts_df['total_return'],
+                mode='lines',
+                name='Total Return',
+                line=dict(color='blue', width=2)
+            ))
+        
+        if 'weight_change_impact' in ts_df.columns:
+            fig.add_trace(go.Scatter(
+                x=ts_df['date'],
+                y=ts_df['weight_change_impact'],
+                mode='lines',
+                name='Rebalancing Impact',
+                line=dict(color='orange', width=1)
+            ))
+        
+        fig.update_layout(
+            title=f"{selected_period} Attribution Time Series",
+            xaxis_title="Date",
+            yaxis_title="Return",
+            height=400,
+            legend=dict(
+                yanchor="top",
+                y=0.99,
+                xanchor="left",
+                x=0.01
+            )
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # Export options
+        st.subheader("📥 Export Attribution Data")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            csv_data = ts_df.to_csv(index=False)
+            st.download_button(
+                label="Download CSV",
+                data=csv_data,
+                file_name=f"{strategy_name}_{selected_period}_attribution.csv",
+                mime="text/csv"
+            )
+        
+        with col2:
+            if st.button("View Raw Data", key=f"raw_data_{selected_period}"):
+                with st.expander("Raw Attribution Data", expanded=True):
+                    st.dataframe(ts_df, use_container_width=True)
+    
+    else:
+        st.info("No detailed attribution time series data available")
+
+
+def create_attribution_summary_chart(attribution_data: Dict) -> go.Figure:
+    """Create a summary chart comparing attribution across different periods."""
+    periods = []
+    total_returns = []
+    asset_contributions = []
+    rebalancing_impacts = []
+    
+    for period_name, period_data in attribution_data.items():
+        if period_name.endswith('_analysis') and isinstance(period_data, dict):
+            summary_stats = period_data.get('summary_statistics', {})
+            periods.append(period_name.replace('_analysis', '').title())
+            total_returns.append(summary_stats.get('total_portfolio_return', 0))
+            asset_contributions.append(summary_stats.get('total_asset_contribution', 0))
+            rebalancing_impacts.append(summary_stats.get('total_rebalancing_impact', 0))
+    
+    if not periods:
+        return go.Figure()
+    
+    fig = go.Figure(data=[
+        go.Bar(
+            name='Asset Contribution',
+            x=periods,
+            y=asset_contributions,
+            marker_color='lightblue'
+        ),
+        go.Bar(
+            name='Rebalancing Impact',
+            x=periods,
+            y=rebalancing_impacts,
+            marker_color='orange'
+        )
+    ])
+    
+    fig.update_layout(
+        title="Attribution Summary Across Periods",
+        xaxis_title="Period",
+        yaxis_title="Contribution",
+        barmode='stack',
+        height=400
+    )
+    
+    return fig

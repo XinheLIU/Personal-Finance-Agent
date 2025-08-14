@@ -15,6 +15,13 @@ class SixtyFortyStrategy(StaticAllocationStrategy):
             'SP500': 0.60,
             'TLT': 0.40
         }
+    
+    @classmethod
+    def get_static_target_weights(cls) -> Dict[str, float]:
+        return {
+            'SP500': 0.60,
+            'TLT': 0.40
+        }
 
 class PermanentPortfolioStrategy(StaticAllocationStrategy):
     """
@@ -26,6 +33,15 @@ class PermanentPortfolioStrategy(StaticAllocationStrategy):
             'SP500': 0.25,
             'TLT': 0.25,
             'SHY': 0.25,  # Short-term Treasury bonds as cash equivalent
+            'GLD': 0.25
+        }
+    
+    @classmethod
+    def get_static_target_weights(cls) -> Dict[str, float]:
+        return {
+            'SP500': 0.25,
+            'TLT': 0.25,
+            'SHY': 0.25,
             'GLD': 0.25
         }
 
@@ -55,6 +71,15 @@ class AllWeatherPortfolioStrategy(StaticAllocationStrategy):
                 filtered_weights[asset] *= scale_factor
         
         return filtered_weights
+    
+    @classmethod
+    def get_static_target_weights(cls) -> Dict[str, float]:
+        return {
+            'SP500': 0.30,
+            'TLT': 0.55,
+            'GLD': 0.075,
+            'DBC': 0.075
+        }
 
 class DavidSwensenStrategy(StaticAllocationStrategy):
     """
@@ -84,6 +109,16 @@ class DavidSwensenStrategy(StaticAllocationStrategy):
                 filtered_weights[asset] *= scale_factor
         
         return filtered_weights
+    
+    @classmethod
+    def get_static_target_weights(cls) -> Dict[str, float]:
+        return {
+            'SP500': 0.30,
+            'VEA': 0.15,
+            'TLT': 0.20,
+            'GLD': 0.20,
+            'NASDAQ100': 0.15
+        }
 
 class SimpleBuyAndHoldStrategy(StaticAllocationStrategy):
     """
@@ -94,6 +129,10 @@ class SimpleBuyAndHoldStrategy(StaticAllocationStrategy):
         self.bought = False
         
     def get_target_weights(self) -> Dict[str, float]:
+        return {'SP500': 1.0}
+    
+    @classmethod
+    def get_static_target_weights(cls) -> Dict[str, float]:
         return {'SP500': 1.0}
     
     def next(self):
@@ -112,3 +151,15 @@ class EqualWeightStrategy(StaticAllocationStrategy):
         assets = [data._name for data in self.datas]
         weight = 1.0 / len(assets)
         return {asset: weight for asset in assets}
+    
+    @classmethod
+    def get_static_target_weights(cls) -> Dict[str, float]:
+        # For static display, use a representative equal-weight portfolio
+        # This will be overridden by dynamic weights during actual backtesting
+        return {
+            'CSI300': 0.2,
+            'SP500': 0.2,
+            'TLT': 0.2,
+            'GLD': 0.2,
+            'VEA': 0.2
+        }

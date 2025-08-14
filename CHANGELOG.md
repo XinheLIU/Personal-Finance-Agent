@@ -5,6 +5,81 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.4] - 2025-08-14
+
+### Added
+
+- **Professional Performance Attribution Analysis**: Institutional-grade attribution system that decomposes portfolio returns into asset-level contributions and rebalancing effects
+  - Daily, weekly, and monthly attribution analysis with compound return calculations
+  - Asset contribution tracking showing how each individual asset contributed to portfolio performance
+  - Rebalancing impact analysis measuring the effect of portfolio rebalancing activities
+  - Interactive web interface with attribution charts, tables, and export capabilities
+  - Command-line interface with `--attribution`, `--attribution-period`, and `--export-attribution` options
+  - Automated data export to CSV and Excel files in `/analytics/attribution/` directory
+  - Attribution accuracy reconciliation and validation metrics
+  - Time series visualization of attribution components over selected periods
+
+- **Enhanced GUI Attribution Features**:
+  - Attribution toggle checkbox in backtest interface
+  - Interactive period selection (daily/weekly/monthly)
+  - Stacked bar charts showing asset vs rebalancing contributions
+  - Asset-level analysis tables with contribution breakdown
+  - Time series charts of attribution components
+  - CSV/Excel download capabilities directly from web interface
+
+- **Enhanced CLI Attribution Commands**:
+  - `python -m src.main --attribution "Strategy Name" --attribution-period weekly`
+  - `python -m src.main --export-attribution "Strategy Name"`
+  - `python -m src.cli attribution "Strategy Name" --period monthly`
+  - Top contributors analysis and summary statistics in terminal output
+
+- **Core Attribution Module** (`src/performance/attribution.py`):
+  - `PerformanceAttributor` class implementing professional attribution methodology
+  - Brinson attribution model with T+1 execution lag modeling
+  - Daily attribution calculation with asset and weight change decomposition
+  - Weekly and monthly attribution aggregation with compound return handling
+  - Comprehensive attribution reporting and data export functionality
+
+- Processed-data helpers in `src/strategies/utils.py`: `pe_percentile_from_processed`, `yield_percentile_from_processed`, `current_yield_from_processed`.
+- Merge-and-save helper in `src/data_center/download.py`: `_merge_with_existing_and_save()` used for price, PE, and yield downloads.
+
+### Changed
+
+- **Comprehensive Documentation Overhaul**: Aligned all key documentation with the current state of the codebase to ensure accuracy and consistency.
+- **Updated System Architecture Document**: Completely revamped `docs/04-development/personal-finance-system-architecture.md` with:
+    - A new Mermaid diagram that directly maps to the `src/` directory structure.
+    - Revised module descriptions to reflect their actual implementation and key classes (`EnhancedBacktestEngine`, `SystemCoordinator`, etc.).
+    - Replaced all outdated and simplistic code snippets with new samples that accurately represent the current, more sophisticated implementation (e.g., using `backtrader`, `akshare`, and the class-based module structure).
+- **Corrected Data Source Information**: Updated `docs/04-development/data-sources.md` to remove all references to the obsolete `Tushare` library and accurately describe the roles of `akshare`, `yfinance`, and manual data files.
+- **Improved README**: Updated the main `README.md` with the corrected module descriptions and clearer, more accurate usage instructions for running the CLI and GUI.
+- Rebalancing logs now save to a single file per strategy (overwritten each run) in `analytics/backtests/` using lower_snake_case: `{strategy}_rebalance_log.csv`.
+- Strategies consume only processed data; all fallback/format logic centralized in the data processing layer. Dynamic allocation strategy refactored to processed-only inputs.
+- Module naming: active code moved from `src/strategies/legacy.py` to `src/strategies/classic.py`; `legacy.py` retained as a thin compatibility shim.
+- Downloaded data now preserves historical coverage by merging with existing files before saving; consolidated outputs span the full merged date range.
+
+### Enhanced
+
+- **Backtesting Engine**: Enhanced to capture attribution-ready data including asset returns, portfolio weights evolution, and rebalancing activities
+- **Data Pipeline**: Improved data capture for attribution analysis with asset-level return tracking
+- **Visualization System**: New attribution-specific charts and interactive visualizations in web interface
+- **Documentation**: Comprehensive attribution analysis documentation with professional use cases and examples
+
+### Files Modified/Added
+
+- Added: `src/performance/attribution.py` (core attribution analysis system)
+- Added: `src/strategies/classic.py`
+- Modified: `src/backtesting/engine.py`, `src/backtesting/runner.py` (attribution data capture)
+- Modified: `src/streamlit_app.py` (GUI attribution integration)
+- Modified: `src/visualization/charts.py` (attribution visualization functions)
+- Modified: `src/cli.py`, `src/main.py` (CLI attribution commands)
+- Modified: `src/strategies/builtin/dynamic_strategies.py`, `src/strategies/utils.py`, `src/data_center/download.py`, `tests/test_backtest.py`
+- Modified: `docs/04-development/personal-finance-system-architecture.md`
+- Modified: `docs/04-development/data-sources.md`
+- Modified: `README.md` (comprehensive attribution documentation)
+- Modified: `CHANGELOG.md`
+- Enhanced: Attribution data automatically saved to `/analytics/attribution/` directory
+- Deprecated (shim): `src/strategies/legacy.py` now re-exports from `classic`
+
 ## Data Model & Processing Pipeline Refactor - 2025-08-12
 
 - Separated raw and processed data; removed duplicate directories.
