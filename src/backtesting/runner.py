@@ -202,6 +202,9 @@ def run_backtest(strategy_class, strategy_name, start_date=None, end_date=None, 
                 portfolio_df['returns'] = portfolio_df['value'].pct_change()
                 # Set date as index for attribution analysis compatibility
                 portfolio_df.set_index('date', inplace=True)
+                
+                # Normalize portfolio dates to date-only for consistent attribution alignment
+                portfolio_df.index = portfolio_df.index.normalize()
                 # Cache DataFrame in results for performance analytics
                 backtest_results['portfolio_evolution'] = portfolio_df
 
@@ -237,7 +240,15 @@ def run_backtest(strategy_class, strategy_name, start_date=None, end_date=None, 
                 # Create asset returns DataFrame from captured data
                 if asset_returns_data:
                     asset_returns_df = pd.DataFrame(asset_returns_data)
+                    # Ensure timezone-naive index for consistent attribution analysis
+                    if hasattr(asset_returns_df.index, 'tz') and asset_returns_df.index.tz is not None:
+                        asset_returns_df.index = asset_returns_df.index.tz_localize(None)
+                    
+                    # Normalize dates to date-only (remove time component) for proper alignment
+                    asset_returns_df.index = asset_returns_df.index.normalize()
+                    
                     backtest_results['asset_returns'] = asset_returns_df
+                    LOG.info(f"Asset returns DataFrame created with {len(asset_returns_df)} records, timezone-naive: {asset_returns_df.index.tz is None}")
                 else:
                     asset_returns_df = None
                 
@@ -248,6 +259,8 @@ def run_backtest(strategy_class, strategy_name, start_date=None, end_date=None, 
                     if 'date' in weights_df.columns:
                         weights_df['date'] = pd.to_datetime(weights_df['date'])
                         weights_df.set_index('date', inplace=True)
+                        # Normalize weights dates to date-only for consistent attribution alignment
+                        weights_df.index = weights_df.index.normalize()
                 elif hasattr(strat, 'rebalance_log') and strat.rebalance_log:
                     # Reconstruct weights from rebalancing log
                     weights_data = []
@@ -261,6 +274,8 @@ def run_backtest(strategy_class, strategy_name, start_date=None, end_date=None, 
                         weights_df = pd.DataFrame(weights_data)
                         weights_df['date'] = pd.to_datetime(weights_df['date'])
                         weights_df.set_index('date', inplace=True)
+                        # Normalize rebalance log dates to date-only for consistent attribution alignment
+                        weights_df.index = weights_df.index.normalize()
                 
                 # Run attribution analysis if we have required data
                 if all(data is not None for data in [portfolio_data, asset_returns_df, weights_df]):

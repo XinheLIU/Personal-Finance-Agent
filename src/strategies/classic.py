@@ -125,6 +125,8 @@ class DynamicAllocationStrategy(bt.Strategy):
         self.rebalance_log = []
         self.portfolio_values = []
         self.portfolio_dates = []
+        # Track weights evolution for attribution analysis
+        self.weights_evolution = []
         self.data_feeds = {data._name: data for data in self.datas}
         
     def calculate_target_weights(self, current_date):
@@ -186,10 +188,15 @@ class DynamicAllocationStrategy(bt.Strategy):
         self.portfolio_values.append(portfolio_value)
         self.portfolio_dates.append(current_date)
         
+        # Capture weights evolution for attribution analysis
+        current_weights = self.get_current_weights()
+        weights_entry = {'date': current_date}
+        weights_entry.update(current_weights)
+        self.weights_evolution.append(weights_entry)
+        
         if (len(self) - self.last_rebalance >= self.params.rebalance_days) or len(self) == 1:
             try:
                 target_weights, pe_percentiles, current_yield, yield_pct = self.calculate_target_weights(current_date)
-                current_weights = self.get_current_weights()
                 if self.need_rebalancing(target_weights, current_weights) or len(self) == 1:
                     self.rebalance_portfolio(target_weights, pe_percentiles, current_yield, yield_pct)
                     self.last_rebalance = len(self)
@@ -209,6 +216,9 @@ class FixedWeightStrategy(bt.Strategy):
         self.last_rebalance = 0
         self.portfolio_values = []
         self.portfolio_dates = []
+        # Track weights evolution for attribution analysis
+        self.weights_evolution = []
+        self.rebalance_log = []
         self.data_feeds = {data._name: data for data in self.datas}
         self.validate_assets()
 
@@ -224,12 +234,42 @@ class FixedWeightStrategy(bt.Strategy):
         self.portfolio_values.append(portfolio_value)
         self.portfolio_dates.append(current_date)
 
+        # Capture weights evolution for attribution analysis
+        current_weights = self.get_current_weights()
+        weights_entry = {'date': current_date}
+        weights_entry.update(current_weights)
+        self.weights_evolution.append(weights_entry)
+
         if (len(self) - self.last_rebalance >= self.p.rebalance_days) or len(self) == 1:
             self.rebalance_portfolio()
             self.last_rebalance = len(self)
 
+    def get_current_weights(self) -> dict:
+        """Get current portfolio weights"""
+        total_value = self.broker.getvalue()
+        weights = {}
+        
+        for data in self.datas:
+            position = self.getposition(data)
+            if position.size != 0:
+                position_value = position.size * data.close[0]
+                weights[data._name] = position_value / total_value
+            else:
+                weights[data._name] = 0.0
+        return weights
+    
     def rebalance_portfolio(self):
-        LOG.info(f"Rebalancing for {self.__class__.__name__} on {self.datas[0].datetime.date(0)}")
+        current_date = self.datas[0].datetime.date(0)
+        LOG.info(f"Rebalancing for {self.__class__.__name__} on {current_date}")
+        
+        # Log rebalancing event for attribution analysis
+        rebalance_entry = {
+            'date': current_date,
+            'target_weights': self.p.target_weights.copy(),
+            'strategy': self.__class__.__name__
+        }
+        self.rebalance_log.append(rebalance_entry)
+        
         for asset, target_weight in self.p.target_weights.items():
             if asset in self.data_feeds:
                 self.order_target_percent(data=self.data_feeds[asset], target=target_weight)
@@ -266,6 +306,9 @@ class BuyAndHoldStrategy(bt.Strategy):
         self.bought = False
         self.portfolio_values = []
         self.portfolio_dates = []
+        # Track weights evolution for attribution analysis
+        self.weights_evolution = []
+        self.rebalance_log = []
         self.shares_bought = 0
         self.order = None
 
@@ -278,13 +321,34 @@ class BuyAndHoldStrategy(bt.Strategy):
         if self.data_feed is None:
             self.data_feed = self.datas[0]
 
+    def get_current_weights(self) -> dict:
+        """Get current portfolio weights"""
+        total_value = self.broker.getvalue()
+        weights = {}
+        
+        for data in self.datas:
+            position = self.getposition(data)
+            if position.size != 0:
+                position_value = position.size * data.close[0]
+                weights[data._name] = position_value / total_value
+            else:
+                weights[data._name] = 0.0
+        return weights
+
     def next(self):
         # Use broker's marked-to-market portfolio value for robustness
         current_price = self.data_feed.close[0]
         portfolio_value = self.broker.getvalue()
+        current_date = self.data_feed.datetime.date(0)
         
         self.portfolio_values.append(portfolio_value)
-        self.portfolio_dates.append(self.data_feed.datetime.date(0))
+        self.portfolio_dates.append(current_date)
+        
+        # Capture weights evolution for attribution analysis
+        current_weights = self.get_current_weights()
+        weights_entry = {'date': current_date}
+        weights_entry.update(current_weights)
+        self.weights_evolution.append(weights_entry)
         
         if not self.bought:
             if current_price > 0:
@@ -294,6 +358,15 @@ class BuyAndHoldStrategy(bt.Strategy):
                 if size > 0:
                     self.buy(data=self.data_feed, size=size)
                     self.bought = True
+                    
+                    # Log initial purchase as rebalancing event for attribution
+                    rebalance_entry = {
+                        'date': current_date,
+                        'target_weights': {self.data_feed._name: 1.0},
+                        'strategy': self.__class__.__name__,
+                        'trigger': 'initial_purchase'
+                    }
+                    self.rebalance_log.append(rebalance_entry)
                 else:
                     LOG.warning("Buy and Hold: Not enough cash to buy any shares")
             else:

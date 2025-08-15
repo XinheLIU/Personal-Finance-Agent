@@ -137,116 +137,247 @@ def run_backtest_streamlit(strategy_choice: str,
         return {"error": f"Backtest failed: {e}"}
 
 def get_available_data() -> pd.DataFrame:
-    """Get information about available data files."""
+    """Get information about available data files using singleton storage system."""
     data_files = []
-    for data_type in ["price", "pe", "yield"]:
-        data_dir = os.path.join("data", "raw", data_type)
-        if os.path.exists(data_dir):
-            for file in os.listdir(data_dir):
-                if file.endswith(".csv"):
-                    try:
-                        asset_name = file.split('_')[0]
-                        df = pd.read_csv(os.path.join(data_dir, file))
-                        start_date, end_date = get_data_range_info(df)
-                        # Compute freshness
-                        days_since_update = None
-                        stale_flag = "Unknown"
-                        if end_date is not None:
-                            try:
-                                days_since_update = (date.today() - end_date.date()).days
-                                stale_flag = "Yes" if days_since_update is not None and days_since_update > 30 else "No"
-                            except Exception:
-                                pass
-                        data_files.append({
-                            "Type": data_type.upper(),
-                            "Asset": asset_name,
-                            "Start Date": start_date.strftime('%Y-%m-%d') if start_date else "N/A",
-                            "End Date": end_date.strftime('%Y-%m-%d') if end_date else "N/A",
-                            "Records": len(df),
-                            "Last Updated (days)": days_since_update if days_since_update is not None else "N/A",
-                            "Stale (>30d)": stale_flag
-                        })
-                    except Exception as e:
-                        LOG.error(f"Error reading data file {file}: {e}")
+    
+    # Import here to avoid circular imports
+    from config.assets import ASSETS, PE_ASSETS
+    
+    # Check price data (singleton files)
+    price_dir = os.path.join("data", "raw", "price")
+    if os.path.exists(price_dir):
+        for asset_name in ASSETS.keys():
+            singleton_file = os.path.join(price_dir, f"{asset_name}_price.csv")
+            if os.path.exists(singleton_file):
+                try:
+                    df = pd.read_csv(singleton_file)
+                    start_date, end_date = get_data_range_info(df)
+                    # Compute freshness
+                    days_since_update = None
+                    stale_flag = "Unknown"
+                    if end_date is not None:
+                        try:
+                            days_since_update = (date.today() - end_date.date()).days
+                            stale_flag = "Yes" if days_since_update is not None and days_since_update > 30 else "No"
+                        except Exception:
+                            pass
+                    data_files.append({
+                        "Type": "PRICE",
+                        "Asset": asset_name,
+                        "Start Date": start_date.strftime('%Y-%m-%d') if start_date else "N/A",
+                        "End Date": end_date.strftime('%Y-%m-%d') if end_date else "N/A",
+                        "Records": len(df),
+                        "Last Updated (days)": days_since_update if days_since_update is not None else "N/A",
+                        "Stale (>30d)": stale_flag
+                    })
+                except Exception as e:
+                    LOG.error(f"Error reading price data file {singleton_file}: {e}")
+    
+    # Check PE data (singleton files + manual folder)
+    pe_dir = os.path.join("data", "raw", "pe")
+    if os.path.exists(pe_dir):
+        for asset_name in PE_ASSETS.keys():
+            # Check singleton file first, then manual folder
+            singleton_file = os.path.join(pe_dir, f"{asset_name}_pe.csv")
+            manual_file = os.path.join(pe_dir, "manual", f"{asset_name}_pe.csv")
+            
+            pe_file = None
+            data_source = "Auto"
+            if os.path.exists(singleton_file):
+                pe_file = singleton_file
+                data_source = "Auto"
+            elif os.path.exists(manual_file):
+                pe_file = manual_file
+                data_source = "Manual"
+            
+            if pe_file:
+                try:
+                    df = pd.read_csv(pe_file)
+                    start_date, end_date = get_data_range_info(df)
+                    # Compute freshness
+                    days_since_update = None
+                    stale_flag = "Unknown"
+                    if end_date is not None:
+                        try:
+                            days_since_update = (date.today() - end_date.date()).days
+                            stale_flag = "Yes" if days_since_update is not None and days_since_update > 30 else "No"
+                        except Exception:
+                            pass
+                    data_files.append({
+                        "Type": "PE",
+                        "Asset": f"{asset_name} ({data_source})",
+                        "Start Date": start_date.strftime('%Y-%m-%d') if start_date else "N/A",
+                        "End Date": end_date.strftime('%Y-%m-%d') if end_date else "N/A",
+                        "Records": len(df),
+                        "Last Updated (days)": days_since_update if days_since_update is not None else "N/A",
+                        "Stale (>30d)": stale_flag
+                    })
+                except Exception as e:
+                    LOG.error(f"Error reading PE data file {pe_file}: {e}")
+    
+    # Check yield data (singleton file)
+    yield_dir = os.path.join("data", "raw", "yield")
+    yield_file = os.path.join(yield_dir, "US10Y_yield.csv")
+    if os.path.exists(yield_file):
+        try:
+            df = pd.read_csv(yield_file)
+            start_date, end_date = get_data_range_info(df)
+            # Compute freshness
+            days_since_update = None
+            stale_flag = "Unknown"
+            if end_date is not None:
+                try:
+                    days_since_update = (date.today() - end_date.date()).days
+                    stale_flag = "Yes" if days_since_update is not None and days_since_update > 30 else "No"
+                except Exception:
+                    pass
+            data_files.append({
+                "Type": "YIELD",
+                "Asset": "US10Y",
+                "Start Date": start_date.strftime('%Y-%m-%d') if start_date else "N/A",
+                "End Date": end_date.strftime('%Y-%m-%d') if end_date else "N/A",
+                "Records": len(df),
+                "Last Updated (days)": days_since_update if days_since_update is not None else "N/A",
+                "Stale (>30d)": stale_flag
+            })
+        except Exception as e:
+            LOG.error(f"Error reading yield data file {yield_file}: {e}")
+    
     return pd.DataFrame(data_files) if data_files else pd.DataFrame()
 
 def load_data_for_visualization() -> Dict[str, pd.DataFrame]:
-    """Load data for visualization with enhanced PE data handling."""
+    """Load data for visualization using singleton files with fallback to old naming."""
     data_dict = {}
-    for data_type in ["price", "pe", "yield"]:
-        data_dir = os.path.join("data", "raw", data_type)
-        if os.path.exists(data_dir):
-            for file in os.listdir(data_dir):
-                if file.endswith(".csv"):
-                    try:
-                        asset_name = file.split('_')[0]
-                        df = pd.read_csv(os.path.join(data_dir, file))
-                        
-                        if df.empty:
-                            LOG.warning(f"Empty data file: {file}")
-                            continue
-                        
-                        # Enhanced date parsing
-                        date_col = None
-                        if 'date' in df.columns:
-                            date_col = 'date'
-                        elif 'Date' in df.columns:
-                            date_col = 'Date'
-                        elif len(df.columns) > 0:
-                            date_col = df.columns[0]
-                        
-                        if date_col:
-                            try:
-                                df['Date'] = pd.to_datetime(df[date_col], errors='coerce')
-                                # Remove invalid dates
-                                df = df.dropna(subset=['Date'])
-                            except Exception as e:
-                                LOG.warning(f"Date parsing error in {file}: {e}")
-                                continue
-                        
-                        # Enhanced value column detection
-                        value_col = None
-                        if data_type == "price":
-                            if 'close' in df.columns:
-                                value_col = 'close'
-                            elif '收盘' in df.columns:
-                                value_col = '收盘'
-                        elif data_type == "pe":
-                            if 'pe' in df.columns:
-                                value_col = 'pe'
-                            elif 'PE' in df.columns:
-                                value_col = 'PE'
-                            elif 'pe_ratio' in df.columns:
-                                value_col = 'pe_ratio'
-                        elif data_type == "yield":
-                            if 'yield' in df.columns:
-                                value_col = 'yield'
-                            elif 'Yield' in df.columns:
-                                value_col = 'Yield'
-                        
-                        # Fallback to last column if no specific column found
-                        if not value_col and len(df.columns) > 1:
-                            value_col = df.columns[-1]
-                        
-                        if value_col and value_col in df.columns:
-                            df['Value'] = pd.to_numeric(df[value_col], errors='coerce')
-                            # Remove invalid values
-                            df = df.dropna(subset=['Value'])
-                            
-                            # Filter out unrealistic PE values for PE data
-                            if data_type == "pe":
-                                df = df[(df['Value'] > 0) & (df['Value'] < 100)]  # Reasonable PE range
-                            
-                            if not df.empty:
-                                data_dict[f"{asset_name} ({data_type.upper()})"] = df[['Date', 'Value']].copy()
-                            else:
-                                LOG.warning(f"No valid data after cleaning: {file}")
-                        else:
-                            LOG.warning(f"Could not identify value column in {file}")
-                            
-                    except Exception as e:
-                        LOG.error(f"Error loading data file {file}: {e}")
+    
+    # Import here to avoid circular imports
+    from config.assets import ASSETS, PE_ASSETS
+    
+    # Load price data using singleton files
+    price_dir = os.path.join("data", "raw", "price")
+    if os.path.exists(price_dir):
+        for asset_name in ASSETS.keys():
+            # Try singleton file first
+            singleton_file = os.path.join(price_dir, f"{asset_name}_price.csv")
+            if os.path.exists(singleton_file):
+                try:
+                    df = _load_singleton_data_file(singleton_file, "price", asset_name)
+                    if df is not None:
+                        data_dict[f"{asset_name} (PRICE)"] = df
+                except Exception as e:
+                    LOG.error(f"Error loading singleton price file {singleton_file}: {e}")
+    
+    # Load PE data using singleton files (check manual folder too)
+    pe_dir = os.path.join("data", "raw", "pe")
+    if os.path.exists(pe_dir):
+        for asset_name in PE_ASSETS.keys():
+            # Try singleton file first, then manual folder
+            singleton_file = os.path.join(pe_dir, f"{asset_name}_pe.csv")
+            manual_file = os.path.join(pe_dir, "manual", f"{asset_name}_pe.csv")
+            
+            pe_file = None
+            if os.path.exists(singleton_file):
+                pe_file = singleton_file
+            elif os.path.exists(manual_file):
+                pe_file = manual_file
+                LOG.info(f"Using manual PE data for {asset_name}")
+            
+            if pe_file:
+                try:
+                    df = _load_singleton_data_file(pe_file, "pe", asset_name)
+                    if df is not None:
+                        data_dict[f"{asset_name} (PE)"] = df
+                except Exception as e:
+                    LOG.error(f"Error loading PE file {pe_file}: {e}")
+    
+    # Load yield data using singleton file
+    yield_dir = os.path.join("data", "raw", "yield")
+    yield_file = os.path.join(yield_dir, "US10Y_yield.csv")
+    if os.path.exists(yield_file):
+        try:
+            df = _load_singleton_data_file(yield_file, "yield", "US10Y")
+            if df is not None:
+                data_dict["US10Y (YIELD)"] = df
+        except Exception as e:
+            LOG.error(f"Error loading singleton yield file {yield_file}: {e}")
+    
     return data_dict
+
+def _load_singleton_data_file(file_path: str, data_type: str, asset_name: str) -> pd.DataFrame:
+    """Load and clean a singleton data file for visualization."""
+    try:
+        df = pd.read_csv(file_path)
+        
+        if df.empty:
+            LOG.warning(f"Empty data file: {file_path}")
+            return None
+        
+        # Enhanced date parsing
+        date_col = None
+        if 'date' in df.columns:
+            date_col = 'date'
+        elif 'Date' in df.columns:
+            date_col = 'Date'
+        elif len(df.columns) > 0:
+            date_col = df.columns[0]
+        
+        if date_col:
+            try:
+                df['Date'] = pd.to_datetime(df[date_col], errors='coerce')
+                # Remove invalid dates
+                df = df.dropna(subset=['Date'])
+            except Exception as e:
+                LOG.warning(f"Date parsing error in {file_path}: {e}")
+                return None
+        
+        # Enhanced value column detection
+        value_col = None
+        if data_type == "price":
+            if 'close' in df.columns:
+                value_col = 'close'
+            elif 'Close' in df.columns:
+                value_col = 'Close'
+            elif '收盘' in df.columns:
+                value_col = '收盘'
+        elif data_type == "pe":
+            if 'pe' in df.columns:
+                value_col = 'pe'
+            elif 'PE' in df.columns:
+                value_col = 'PE'
+            elif 'pe_ratio' in df.columns:
+                value_col = 'pe_ratio'
+        elif data_type == "yield":
+            if 'yield' in df.columns:
+                value_col = 'yield'
+            elif 'Yield' in df.columns:
+                value_col = 'Yield'
+            elif 'Close' in df.columns:  # Yield files sometimes use Close column
+                value_col = 'Close'
+        
+        # Fallback to last column if no specific column found
+        if not value_col and len(df.columns) > 1:
+            value_col = df.columns[-1]
+        
+        if value_col and value_col in df.columns:
+            df['Value'] = pd.to_numeric(df[value_col], errors='coerce')
+            # Remove invalid values
+            df = df.dropna(subset=['Value'])
+            
+            # Filter out unrealistic PE values for PE data
+            if data_type == "pe":
+                df = df[(df['Value'] > 0) & (df['Value'] < 100)]  # Reasonable PE range
+            
+            if not df.empty:
+                return df[['Date', 'Value']].copy()
+            else:
+                LOG.warning(f"No valid data after cleaning: {file_path}")
+                return None
+        else:
+            LOG.warning(f"Could not identify value column in {file_path}")
+            return None
+            
+    except Exception as e:
+        LOG.error(f"Error loading data file {file_path}: {e}")
+        return None
 
 def create_detailed_metrics_table(results: Dict):
     """Create a detailed metrics table with rounded values."""

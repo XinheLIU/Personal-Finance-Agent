@@ -32,13 +32,19 @@ class DataLoader:
             LOG.warning(f"Empty DataFrame for {asset_name}")
             return df
         
-        # Check for required columns
-        if 'close' not in df.columns and '收盘' not in df.columns:
-            raise ValueError(f"Missing 'close' column for {asset_name}")
+        # Check for required columns (handle both upper and lowercase)
+        close_cols = [col for col in df.columns if col.lower() in ['close', '收盘']]
+        if not close_cols:
+            raise ValueError(f"Missing 'close' column for {asset_name}. Available columns: {list(df.columns)}")
         
-        # Standardize column names
-        if '收盘' in df.columns:
-            df = df.rename(columns={'收盘': 'close'})
+        # Standardize column names (handle various cases)
+        column_mapping = {}
+        for col in df.columns:
+            if col.lower() == 'close' or col == '收盘':
+                column_mapping[col] = 'close'
+        
+        if column_mapping:
+            df = df.rename(columns=column_mapping)
         
         # Remove invalid values
         initial_len = len(df)
@@ -49,7 +55,7 @@ class DataLoader:
             LOG.info(f"Cleaned {asset_name}: removed {initial_len - len(df)} invalid records")
         
         # Ensure timezone-naive datetime index
-        if df.index.tz is not None:
+        if hasattr(df.index, 'tz') and df.index.tz is not None:
             df.index = df.index.tz_localize(None)
         
         # Sort by date
@@ -74,36 +80,62 @@ class DataLoader:
             LOG.error(f"Price data directory not found: {price_dir}")
             return None
         
-        # Find matching files
-        pattern = f"{asset_name}_"
-        matching_files = [f for f in price_dir.glob(f"{pattern}*.csv")]
+        # Look for singleton file first, then fall back to complex naming
+        singleton_file = price_dir / f"{asset_name}_price.csv"
         
-        if not matching_files:
-            raise FileNotFoundError(f"No price data file found for {name} in {price_dir} (pattern: {pattern})")
-        
-        # Use most recent file
-        filepath = sorted(matching_files)[-1]
+        if singleton_file.exists():
+            filepath = singleton_file
+        else:
+            # Fall back to old complex naming pattern
+            pattern = f"{asset_name}_"
+            matching_files = [f for f in price_dir.glob(f"{pattern}*.csv")]
+            
+            if not matching_files:
+                raise FileNotFoundError(f"No price data file found for {name} in {price_dir} (tried: {singleton_file} and pattern: {pattern})")
+            
+            # Use most recent file
+            filepath = sorted(matching_files)[-1]
         
         try:
             df = pd.read_csv(filepath)
             
-            # Standardize column names
-            if '日期' in df.columns and '收盘' in df.columns:
-                df = df.rename(columns={'日期': 'datetime', '收盘': 'close'})
-            elif 'date' in df.columns and 'close' in df.columns:
-                df = df.rename(columns={'date': 'datetime'})
-            else:
-                LOG.warning(f"Unknown column format in {filepath}")
+            # Standardize column names - handle various cases
+            column_mapping = {}
+            
+            # Handle date columns
+            for col in df.columns:
+                if col.lower() == 'date' or col == '日期':
+                    column_mapping[col] = 'datetime'
+                elif col.lower() == 'close' or col == '收盘':
+                    column_mapping[col] = 'close'
+            
+            if 'datetime' not in column_mapping.values():
+                LOG.warning(f"No date column found in {filepath}. Available columns: {list(df.columns)}")
                 return None
             
-            df['datetime'] = pd.to_datetime(df['datetime'])
+            if 'close' not in column_mapping.values():
+                LOG.warning(f"No close column found in {filepath}. Available columns: {list(df.columns)}")
+                return None
+            
+            df = df.rename(columns=column_mapping)
+            
+            # Handle timezone-aware datetime parsing to avoid mixed timezone warnings
+            # Use format='mixed' to handle files with mixed timezone formats gracefully
+            df['datetime'] = pd.to_datetime(df['datetime'], format='mixed', utc=True)
             df.set_index('datetime', inplace=True)
+            
+            # Convert to timezone-naive for consistent comparisons throughout the system
+            df.index = df.index.tz_localize(None)
             
             # Validate and clean data
             df = self._validate_dataframe(df, asset_name)
             
             if start_date:
-                df = df[df.index >= pd.to_datetime(start_date)]
+                start_date_parsed = pd.to_datetime(start_date)
+                # Ensure start_date is also timezone-naive for comparison
+                if hasattr(start_date_parsed, 'tz') and start_date_parsed.tz is not None:
+                    start_date_parsed = start_date_parsed.tz_localize(None)
+                df = df[df.index >= start_date_parsed]
             
             # Create OHLV data for backtrader
             df['open'] = df['close'].astype(float)
@@ -148,31 +180,50 @@ class DataLoader:
         # Load price data for regular assets
         for asset_name in ASSETS.keys():
             try:
-                files = list(price_dir.glob(f'{asset_name}_*.csv'))
-                if files:
-                    file = sorted(files)[-1]  # Use most recent file
-                    df = pd.read_csv(file)
-                    
-                    # Standardize date column
-                    if '日期' in df.columns:
-                        df['日期'] = pd.to_datetime(df['日期'])
-                        df.set_index('日期', inplace=True)
-                    else:
-                        df['date'] = pd.to_datetime(df['date'])
-                        df.set_index('date', inplace=True)
-                    
-                    # Validate and clean
-                    df = self._validate_dataframe(df, asset_name)
-                    
-                    # Normalize if requested
-                    if normalize:
-                        df = self._normalize_price_data(df)
-                    
-                    market_data[asset_name] = df
-                    LOG.info(f"Loaded {asset_name}: {len(df)} records")
+                # Look for singleton file first, then fall back to complex naming
+                singleton_file = price_dir / f"{asset_name}_price.csv"
+                
+                if singleton_file.exists():
+                    file = singleton_file
                 else:
-                    raise FileNotFoundError(f"No price data file found for {asset_name}")
+                    # Fall back to old complex naming pattern
+                    files = list(price_dir.glob(f'{asset_name}_*.csv'))
+                    if files:
+                        file = sorted(files)[-1]  # Use most recent file
+                    else:
+                        raise FileNotFoundError(f"No price data file found for {asset_name}")
+                
+                df = pd.read_csv(file)
+                
+                # Standardize date column - handle various cases
+                date_column = None
+                for col in df.columns:
+                    if col.lower() == 'date' or col == '日期':
+                        date_column = col
+                        break
+                
+                if date_column:
+                    # Handle timezone-aware datetime parsing consistently
+                    # Use format='mixed' to handle files with mixed timezone formats gracefully
+                    df[date_column] = pd.to_datetime(df[date_column], format='mixed', utc=True)
+                    df.set_index(date_column, inplace=True)
                     
+                    # Convert to timezone-naive for consistent processing throughout the system
+                    df.index = df.index.tz_localize(None)
+                else:
+                    LOG.warning(f"No date column found for {asset_name}. Available columns: {list(df.columns)}")
+                    continue
+                
+                # Validate and clean
+                df = self._validate_dataframe(df, asset_name)
+                
+                # Normalize if requested
+                if normalize:
+                    df = self._normalize_price_data(df)
+                
+                market_data[asset_name] = df
+                LOG.info(f"Loaded {asset_name}: {len(df)} records")
+                
             except Exception as e:
                 LOG.error(f"Error loading market data for {asset_name}: {e}")
                 market_data[asset_name] = pd.DataFrame()
@@ -206,31 +257,41 @@ class DataLoader:
         
         for asset in PE_ASSETS.keys():
             try:
-                pe_files = list(pe_dir.glob(f'{asset}_*.csv'))
+                # Look for singleton file first, then fall back to complex naming, then check manual folder
+                singleton_file = pe_dir / f"{asset}_pe.csv"
+                manual_file = pe_dir / "manual" / f"{asset}_pe.csv"
                 
-                if pe_files:
-                    pe_file = sorted(pe_files)[-1]  # Use most recent file
-                    pe_df = pd.read_csv(pe_file)
-                    
-                    # Standardize date column handling
-                    if 'date' in pe_df.columns:
-                        pe_df['date'] = pd.to_datetime(pe_df['date'])
-                        pe_df.set_index('date', inplace=True)
-                    elif '日期' in pe_df.columns:
-                        pe_df['日期'] = pd.to_datetime(pe_df['日期'])
-                        pe_df.set_index('日期', inplace=True)
-                    
-                    # Validate and clean PE data
-                    pe_df = self._validate_pe_data(pe_df, asset)
-                    
-                    # Detect data frequency
-                    frequency = self._detect_data_frequency(pe_df)
-                    LOG.info(f"Loaded {asset} PE data: {len(pe_df)} {frequency} records")
-                    
-                    pe_cache[asset] = pe_df
+                if singleton_file.exists():
+                    pe_file = singleton_file
+                elif manual_file.exists():
+                    pe_file = manual_file
+                    LOG.info(f"Using manual PE data for {asset}: {manual_file}")
                 else:
-                    raise FileNotFoundError(f"PE data file not found for {asset}")
-                    
+                    # Fall back to old complex naming pattern
+                    pe_files = list(pe_dir.glob(f'{asset}_*.csv'))
+                    if pe_files:
+                        pe_file = sorted(pe_files)[-1]  # Use most recent file
+                    else:
+                        raise FileNotFoundError(f"PE data file not found for {asset}")
+                
+                pe_df = pd.read_csv(pe_file)
+                
+                # Standardize date column handling
+                if 'date' in pe_df.columns:
+                    pe_df['date'] = pd.to_datetime(pe_df['date'])
+                    pe_df.set_index('date', inplace=True)
+                elif '日期' in pe_df.columns:
+                    pe_df['日期'] = pd.to_datetime(pe_df['日期'])
+                    pe_df.set_index('日期', inplace=True)
+                
+                # Validate and clean PE data
+                pe_df = self._validate_pe_data(pe_df, asset)
+                
+                # Detect data frequency
+                frequency = self._detect_data_frequency(pe_df)
+                LOG.info(f"Loaded {asset} PE data: {len(pe_df)} {frequency} records")
+                
+                pe_cache[asset] = pe_df
             except Exception as e:
                 LOG.error(f"Error loading PE data for {asset}: {e}")
                 pe_cache[asset] = pd.DataFrame()
@@ -245,7 +306,7 @@ class DataLoader:
             return df
         
         # Ensure timezone-naive datetime
-        if df.index.tz is not None:
+        if hasattr(df.index, 'tz') and df.index.tz is not None:
             df.index = df.index.tz_localize(None)
         
         # Remove invalid PE values (negative, zero, or extremely high)
@@ -279,36 +340,56 @@ class DataLoader:
             return pd.DataFrame()
         
         try:
-            yield_files = list(yield_dir.glob('US10Y_*.csv'))
-            if yield_files:
-                yield_file = sorted(yield_files)[-1]  # Use most recent file
-                df = pd.read_csv(yield_file)
-                df['date'] = pd.to_datetime(df['date'])
-                df.set_index('date', inplace=True)
-                
-                # Validate yield data (yield data has 'yield' column, not 'close')
-                if 'yield' not in df.columns:
-                    raise ValueError(f"Missing 'yield' column for US10Y")
-                
-                # Remove invalid values
-                initial_len = len(df)
-                df = df.dropna(subset=['yield'])
-                df = df[df['yield'] > 0]  # Remove negative or zero yields
-                
-                if len(df) < initial_len:
-                    LOG.info(f"Cleaned US10Y yield data: removed {initial_len - len(df)} invalid records")
-                
-                # Ensure timezone-naive datetime index
-                if df.index.tz is not None:
-                    df.index = df.index.tz_localize(None)
-                
-                # Sort by date
-                df = df.sort_index()
-                
-                LOG.info(f"Loaded US 10Y yield data: {len(df)} records")
-                return df
+            # Look for singleton file first, then fall back to complex naming
+            singleton_file = yield_dir / "US10Y_yield.csv"
+            
+            if singleton_file.exists():
+                yield_file = singleton_file
             else:
-                raise FileNotFoundError("US 10Y yield data file not found")
+                # Fall back to old complex naming pattern
+                yield_files = list(yield_dir.glob('US10Y_*.csv'))
+                if yield_files:
+                    yield_file = sorted(yield_files)[-1]  # Use most recent file
+                else:
+                    raise FileNotFoundError("US 10Y yield data file not found")
+            
+            df = pd.read_csv(yield_file)
+            df['date'] = pd.to_datetime(df['date'])
+            df.set_index('date', inplace=True)
+            
+            # Validate yield data (yield data has 'yield' column, not 'close')
+            # Handle both 'yield' and 'Close' columns (some files use Close for yield data)
+            if 'yield' not in df.columns:
+                if 'Close' in df.columns:
+                    df = df.rename(columns={'Close': 'yield'})
+                    LOG.info("Renamed 'Close' column to 'yield' for US10Y data")
+                elif 'close' in df.columns:
+                    df = df.rename(columns={'close': 'yield'})
+                    LOG.info("Renamed 'close' column to 'yield' for US10Y data")
+                else:
+                    raise ValueError(f"Missing 'yield' column for US10Y. Available columns: {list(df.columns)}")
+            
+            # Remove invalid values
+            initial_len = len(df)
+            df = df.dropna(subset=['yield'])
+            
+            # Convert yield to numeric and filter
+            df['yield'] = pd.to_numeric(df['yield'], errors='coerce')
+            df = df.dropna(subset=['yield'])
+            df = df[df['yield'] > 0]  # Remove negative or zero yields
+            
+            if len(df) < initial_len:
+                LOG.info(f"Cleaned US10Y yield data: removed {initial_len - len(df)} invalid records")
+            
+            # Ensure timezone-naive datetime index
+            if hasattr(df.index, 'tz') and df.index.tz is not None:
+                df.index = df.index.tz_localize(None)
+            
+            # Sort by date
+            df = df.sort_index()
+            
+            LOG.info(f"Loaded US 10Y yield data: {len(df)} records")
+            return df
                 
         except Exception as e:
             LOG.error(f"Error loading yield data: {e}")

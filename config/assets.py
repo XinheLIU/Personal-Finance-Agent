@@ -8,7 +8,7 @@ Centralized configuration for the Personal Finance Agent.
 # These are ETFs, funds, and other instruments that investors can actually buy
 TRADABLE_ASSETS = {
     'CSI300': {'akshare': '510300', 'yfinance': 'ASHR'},  # CSI300 ETF (CN: 510300, US: ASHR)
-    'CSI500': {'akshare': '110020', 'yfinance': None},    # CSI500 Fund (CN: 110020)
+    'CSI500': {'akshare': '510500', 'yfinance': None},    # CSI500 ETF (CN: 510500)
     'HSI': {'akshare': '159920', 'yfinance': 'EWH'},      # Hang Seng ETF (CN: 159920, US: EWH)
     'HSTECH': {'akshare': '159742', 'yfinance': 'KTEC'},  # Hang Seng Tech ETF (CN: 159742, US: KTEC)
     'SP500': {'akshare': None, 'yfinance': 'VOO'},        # S&P 500 ETF (Vanguard VOO)

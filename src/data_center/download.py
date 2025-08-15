@@ -27,69 +27,82 @@ def get_data_range_info(df):
     end_date = df[date_col].max()
     return start_date, end_date
 
-# Data download functions
-def _merge_with_existing_and_save(dir_path, asset_name, data_type, df, date_col='date'):
+# Simplified singleton storage functions
+def _merge_with_existing_and_save_singleton(dir_path, asset_name, data_type, df, date_col='date'):
     """
-    Merge newly downloaded df with any existing files for this asset and data_type,
-    preserving older time periods (override duplicates by newest), then save a single
-    consolidated file named with the merged date range.
+    SIMPLIFIED STORAGE: One file per asset-datatype combination.
+    Merge newly downloaded data with existing singleton file, preserving older data
+    and updating overlapping periods with newest data.
+    
+    File naming: {asset_name}_{data_type}.csv (e.g., SP500_price.csv, CSI300_pe.csv)
     """
     try:
         os.makedirs(dir_path, exist_ok=True)
-        # Normalize date column
+        
+        # Normalize date column name
         if date_col not in df.columns:
-            # Try common variants
             if 'Date' in df.columns:
                 df = df.rename(columns={'Date': 'date'})
             elif '日期' in df.columns:
                 df = df.rename(columns={'日期': 'date'})
-        # Ensure datetime
+        
+        # Ensure datetime type
         if not pd.api.types.is_datetime64_any_dtype(df['date']):
             df['date'] = pd.to_datetime(df['date'])
-
-        # Gather existing files and merge
-        pattern = os.path.join(dir_path, f"{asset_name}_{data_type}_*.csv")
-        existing_files = sorted(glob.glob(pattern))
-        frames = [df]
-        for fpath in existing_files:
+        
+        # Singleton file path
+        singleton_file = os.path.join(dir_path, f"{asset_name}_{data_type}.csv")
+        
+        # Check if singleton file exists
+        if os.path.exists(singleton_file):
             try:
-                old = pd.read_csv(fpath)
-                if 'date' not in old.columns:
-                    if 'Date' in old.columns:
-                        old = old.rename(columns={'Date': 'date'})
-                    elif '日期' in old.columns:
-                        old = old.rename(columns={'日期': 'date'})
-                if pd.api.types.is_datetime64_any_dtype(old['date']) is False:
-                    old['date'] = pd.to_datetime(old['date'])
-                frames.append(old)
-            except Exception as read_err:
-                LOG.warning(f"Skipping unreadable file during merge: {fpath} ({read_err})")
-                continue
-
-        merged = pd.concat(frames, ignore_index=True, sort=False)
-        # Deduplicate by date, keep the last occurrence (newest download wins)
-        merged = merged.sort_values('date')
-        merged = merged.drop_duplicates(subset=['date'], keep='last')
-        merged = merged.sort_values('date').reset_index(drop=True)
-
-        # Save consolidated file
-        start_date = merged['date'].min().strftime('%Y%m%d')
-        end_date = merged['date'].max().strftime('%Y%m%d')
-        out_name = f"{asset_name}_{data_type}_{start_date}_to_{end_date}.csv"
-        out_path = os.path.join(dir_path, out_name)
-        merged.to_csv(out_path, index=False)
-        LOG.info(f"Saved consolidated {asset_name} {data_type} to {out_path} ({len(merged)} records)")
-        return out_path, start_date, end_date
+                # Load existing data
+                existing_df = pd.read_csv(singleton_file)
+                
+                # Normalize existing data date column
+                if 'date' not in existing_df.columns:
+                    if 'Date' in existing_df.columns:
+                        existing_df = existing_df.rename(columns={'Date': 'date'})
+                    elif '日期' in existing_df.columns:
+                        existing_df = existing_df.rename(columns={'日期': 'date'})
+                
+                if not pd.api.types.is_datetime64_any_dtype(existing_df['date']):
+                    existing_df['date'] = pd.to_datetime(existing_df['date'])
+                
+                # Merge: combine existing and new data
+                merged = pd.concat([existing_df, df], ignore_index=True)
+                # Remove duplicates by date, keeping the latest (new data wins)
+                merged = merged.sort_values('date')
+                merged = merged.drop_duplicates(subset=['date'], keep='last')
+                merged = merged.sort_values('date').reset_index(drop=True)
+                
+                # Log merge statistics
+                old_count = len(existing_df)
+                new_count = len(df)
+                final_count = len(merged)
+                LOG.info(f"Merged {asset_name}_{data_type}: {old_count} existing + {new_count} new = {final_count} total records")
+                
+            except Exception as e:
+                LOG.warning(f"Failed to read existing {singleton_file}, using new data only: {e}")
+                merged = df.copy()
+        else:
+            # No existing file, use new data as is
+            merged = df.copy()
+            LOG.info(f"Created new singleton file for {asset_name}_{data_type}: {len(merged)} records")
+        
+        # Save to singleton file
+        merged.to_csv(singleton_file, index=False)
+        
+        # Get date range for logging
+        start_date = merged['date'].min().strftime('%Y-%m-%d')
+        end_date = merged['date'].max().strftime('%Y-%m-%d')
+        
+        LOG.info(f"Saved {asset_name}_{data_type}.csv: {len(merged)} records ({start_date} to {end_date})")
+        return singleton_file, start_date, end_date
+        
     except Exception as e:
-        LOG.error(f"Failed to merge and save {asset_name} {data_type}: {e}")
-        # Fallback to saving only the new df
-        start_date = df['date'].min().strftime('%Y%m%d')
-        end_date = df['date'].max().strftime('%Y%m%d')
-        out_name = f"{asset_name}_{data_type}_{start_date}_to_{end_date}.csv"
-        out_path = os.path.join(dir_path, out_name)
-        df.to_csv(out_path, index=False)
-        LOG.info(f"Saved (no-merge fallback) {asset_name} {data_type} to {out_path} ({len(df)} records)")
-        return out_path, start_date, end_date
+        LOG.error(f"Failed to save singleton {asset_name}_{data_type}: {e}")
+        return None, None, None
 
 
 def download_yfinance_data(ticker, asset_name):
@@ -113,7 +126,7 @@ def download_yfinance_data(ticker, asset_name):
         
         # Merge with existing and save consolidated
         price_dir = 'data/raw/price'
-        filepath, start_date, end_date = _merge_with_existing_and_save(price_dir, asset_name, 'price', data, 'date')
+        filepath, start_date, end_date = _merge_with_existing_and_save_singleton(price_dir, asset_name, 'price', data, 'date')
         return filepath, start_date, end_date
         
     except Exception as e:
@@ -121,14 +134,22 @@ def download_yfinance_data(ticker, asset_name):
         return None, None, None
 
 def download_akshare_index(symbol, asset_name):
-    """Download index data from akshare"""
+    """Download index/ETF data from akshare"""
     try:
         LOG.info(f"Downloading {asset_name} data from akshare (symbol: {symbol})")
         
-        # Get stock data from akshare
-        data = ak.stock_zh_a_hist(symbol=symbol, period="daily", adjust="qfq")
+        # Choose the right function based on symbol pattern
+        if symbol.startswith('51') and len(symbol) == 6:  # ETF symbols like 510300, 510500
+            # Use ETF function for 6-digit symbols starting with 51
+            from datetime import date, timedelta
+            end_date = date.today().strftime('%Y%m%d')
+            start_date = '20050101'  # Get maximum historical data
+            data = ak.fund_etf_hist_em(symbol=symbol, period='daily', start_date=start_date, end_date=end_date)
+        else:
+            # Use stock function for other symbols
+            data = ak.stock_zh_a_hist(symbol=symbol, period="daily", adjust="qfq")
         
-        if data.empty:
+        if data is None or data.empty:
             LOG.warning(f"No data received for {symbol}")
             return None, None, None
         
@@ -142,7 +163,7 @@ def download_akshare_index(symbol, asset_name):
         
         # Merge with existing and save consolidated
         price_dir = 'data/raw/price'
-        filepath, start_date, end_date = _merge_with_existing_and_save(price_dir, asset_name, 'price', data, 'date')
+        filepath, start_date, end_date = _merge_with_existing_and_save_singleton(price_dir, asset_name, 'price', data, 'date')
         return filepath, start_date, end_date
         
     except Exception as e:
@@ -191,7 +212,7 @@ def download_all_assets(refresh=False):
             
             # Merge with existing and save consolidated
             yield_dir = 'data/raw/yield'
-            filepath, start_date, end_date = _merge_with_existing_and_save(yield_dir, 'US10Y', 'yield', yield_data, 'date')
+            filepath, start_date, end_date = _merge_with_existing_and_save_singleton(yield_dir, 'US10Y', 'yield', yield_data, 'date')
             LOG.info(f"Saved US 10Y yield data to {filepath} ({len(yield_data)} records)")
             successful_downloads += 1
         else:
@@ -230,7 +251,7 @@ def download_pe_data():
                         
                         # Merge with existing and save consolidated
                         pe_dir = 'data/raw/pe'
-                        filepath, start_date, end_date = _merge_with_existing_and_save(pe_dir, asset_name, 'pe', processed_data, 'date')
+                        filepath, start_date, end_date = _merge_with_existing_and_save_singleton(pe_dir, asset_name, 'pe', processed_data, 'date')
                         LOG.info(f"Saved {asset_name} P/E data to {filepath} ({len(processed_data)} records)")
                     
             elif akshare_source == 'MARKET_PE':
@@ -247,7 +268,7 @@ def download_pe_data():
                         
                         # Merge with existing and save consolidated
                         pe_dir = 'data/raw/pe'
-                        filepath, start_date, end_date = _merge_with_existing_and_save(pe_dir, asset_name, 'pe', processed_data, 'date')
+                        filepath, start_date, end_date = _merge_with_existing_and_save_singleton(pe_dir, asset_name, 'pe', processed_data, 'date')
                         LOG.info(f"Saved {asset_name} P/E data to {filepath} ({len(processed_data)} records)")
             
             # For manual files, just log that they should be downloaded manually
@@ -543,3 +564,123 @@ def estimate_recent_pe_from_price(asset_name, ticker, historical_pe_df, start_da
         return None
 
 
+def process_manual_pe_data():
+    """Process manual PE data files from data/raw/pe/manual/ folder"""
+    manual_pe_dir = os.path.join('data', 'raw', 'pe', 'manual')
+    pe_dir = os.path.join('data', 'raw', 'pe')
+    
+    if not os.path.exists(manual_pe_dir):
+        LOG.info(f"Manual PE directory not found: {manual_pe_dir}")
+        return
+    
+    manual_files = [f for f in os.listdir(manual_pe_dir) if f.endswith('.csv') and not f.startswith('.')]
+    
+    if not manual_files:
+        LOG.info("No manual PE data files found to process")
+        return
+    
+    LOG.info("=" * 60)
+    LOG.info("PROCESSING MANUAL PE DATA")
+    LOG.info("=" * 60)
+    LOG.info(f"Found {len(manual_files)} manual PE data files")
+    
+    processed_count = 0
+    failed_count = 0
+    
+    for file_name in manual_files:
+        try:
+            file_path = os.path.join(manual_pe_dir, file_name)
+            asset_name = file_name.replace('_pe.csv', '').replace('.csv', '')
+            
+            LOG.info(f"Processing manual PE data for {asset_name}: {file_name}")
+            
+            # Read manual data
+            manual_df = pd.read_csv(file_path)
+            
+            # Validate and clean manual data
+            if 'date' not in manual_df.columns:
+                LOG.error(f"Missing 'date' column in {file_name}")
+                failed_count += 1
+                continue
+            
+            # Find PE column
+            pe_column = None
+            for col in ['pe_ratio', 'pe', 'PE', 'PE_ratio']:
+                if col in manual_df.columns:
+                    pe_column = col
+                    break
+            
+            if not pe_column:
+                LOG.error(f"No PE ratio column found in {file_name}. Expected: pe_ratio, pe, PE, or PE_ratio")
+                failed_count += 1
+                continue
+            
+            # Standardize column names
+            manual_df = manual_df.rename(columns={pe_column: 'pe_ratio'})
+            manual_df['date'] = pd.to_datetime(manual_df['date'])
+            
+            # Clean data
+            initial_len = len(manual_df)
+            manual_df = manual_df.dropna(subset=['date', 'pe_ratio'])
+            manual_df = manual_df[(manual_df['pe_ratio'] > 0) & (manual_df['pe_ratio'] < 1000)]
+            manual_df = manual_df.sort_values('date').reset_index(drop=True)
+            
+            if len(manual_df) < initial_len:
+                LOG.info(f"Cleaned manual data: removed {initial_len - len(manual_df)} invalid records")
+            
+            if manual_df.empty:
+                LOG.warning(f"No valid data in {file_name} after cleaning")
+                failed_count += 1
+                continue
+            
+            # Merge with existing PE data using singleton storage
+            filepath, start_date, end_date = _merge_with_existing_and_save_singleton(
+                pe_dir, asset_name, 'pe', manual_df, 'date'
+            )
+            
+            if filepath:
+                LOG.info(f"Successfully processed manual PE data for {asset_name}")
+                LOG.info(f"  Records: {len(manual_df)} manual entries")
+                LOG.info(f"  Date range: {manual_df['date'].min().strftime('%Y-%m-%d')} to {manual_df['date'].max().strftime('%Y-%m-%d')}")
+                LOG.info(f"  Updated: {filepath}")
+                processed_count += 1
+            else:
+                LOG.error(f"Failed to save processed data for {asset_name}")
+                failed_count += 1
+                
+        except Exception as e:
+            LOG.error(f"Error processing {file_name}: {e}")
+            failed_count += 1
+    
+    LOG.info("=" * 60)
+    LOG.info("MANUAL PE DATA PROCESSING COMPLETED")
+    LOG.info(f"Processed: {processed_count} files")
+    LOG.info(f"Failed: {failed_count} files")
+    LOG.info("=" * 60)
+    
+    if processed_count > 0:
+        LOG.info("Manual PE data has been merged into the main system.")
+        LOG.info("You can now:")
+        LOG.info("1. Keep manual files for future reference")
+        LOG.info("2. Move them to a backup folder") 
+        LOG.info("3. Delete them (data is already merged)")
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description='Financial Data Download and Processing Tool')
+    parser.add_argument('--refresh', action='store_true', 
+                       help='Force refresh of all data regardless of existing files')
+    parser.add_argument('--no-auto-process', action='store_true',
+                       help='Skip automatic data processing after download')
+    parser.add_argument('--asset', type=str,
+                       help='Download data for specific asset only (e.g., SP500, CSI300)')
+    parser.add_argument('--process-manual-pe', action='store_true',
+                       help='Process manual PE data files from data/raw/pe/manual/ folder')
+    
+    args = parser.parse_args()
+    
+    if args.process_manual_pe:
+        process_manual_pe_data()
+    else:
+        auto_process = not args.no_auto_process
+        main(refresh=args.refresh, auto_process=auto_process)

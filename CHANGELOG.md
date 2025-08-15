@@ -5,6 +5,77 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Bug Fix - 2025-08-15
+
+### Fixed
+
+- **Critical Timezone Handling Bug**: Fixed timezone comparison errors that prevented loading of yfinance CSV data
+  - **Root Cause**: CSV files from yfinance contain timezone-aware timestamps (`2003-12-05 00:00:00-05:00`) but data loader had inconsistent timezone handling
+  - **Error**: "Cannot compare tz-naive and tz-aware timestamps" when filtering data with start_date
+  - **Solution**: Enhanced datetime parsing with `format='mixed'` and `utc=True`, then convert to timezone-naive for consistent comparisons
+  - **Assets Fixed**: TIP, IEF, SHY (and any other assets with timezone-aware CSV data) now load successfully
+  - **Impact**: Permanent Portfolio and other strategies using these assets now work correctly
+
+- **Performance Attribution Analysis Issues**: Fixed data alignment problems preventing attribution analysis
+  - **Root Cause**: Date format inconsistencies between portfolio data (date-only) and asset returns (datetime with timezone)
+  - **Missing Functionality**: `FixedWeightStrategy` (used by SixtyForty, Permanent Portfolio, etc.) lacked weights evolution tracking
+  - **Solution**: Comprehensive date normalization and enhanced strategy base classes with proper attribution support
+  - **Result**: Attribution analysis now works correctly with 1,000+ daily records generated for comprehensive performance analysis
+
+### Added
+
+- **Comprehensive Timezone Test Suite**: Created `test_timezone_handling.py` with 5 test cases covering:
+  - Timezone-aware data feed loading
+  - Mixed timezone format handling (EST, PST, UTC, naive)
+  - Real-world yfinance CSV format testing
+  - Start date filtering with timezone data
+  - Market data loading with timezone data
+- **Enhanced Strategy Attribution Support**: Added weights evolution tracking and rebalancing logs to `FixedWeightStrategy`
+  - **Features**: Daily weights tracking, rebalancing event logging, attribution-ready data structures
+  - **Strategies Enhanced**: SixtyForty, Permanent Portfolio, All Weather, David Swensen strategies now support full attribution analysis
+- **Improved Error Detection**: Tests now catch timezone-related data loading issues that were previously missed
+
+## [0.3.5] - 2025-08-15
+
+### Changed
+
+- **Simplified Data Storage Architecture**: Completely restructured data storage from complex multi-file naming to singleton file strategy
+  - **Old**: Multiple files per asset like `SP500_20040102_to_20250731.csv`, `SP500_price_20100909_to_20250814.csv`
+  - **New**: Single file per asset-datatype like `SP500_price.csv`, `CSI300_pe.csv`, `US10Y_yield.csv`
+  - Implemented smart data merging that preserves historical data while updating with new downloads
+  - Automated migration system that consolidated existing files into singleton format
+  - Enhanced data loader with fallback support for both singleton and legacy file naming
+
+### Fixed
+
+- **Data Loading Errors**: Resolved "Missing 'close' column" and "No valid data after cleaning" errors
+  - Fixed case-sensitive column name handling (Close vs close)
+  - Added support for mixed column formats (English vs Chinese)
+  - Enhanced timezone handling for datetime columns
+  - Improved yield data column detection and normalization
+- **Frontend Data Integration**: Updated Streamlit app to use singleton data files
+  - **Before**: Loading errors and empty datasets due to complex file naming
+  - **After**: Successfully loads 23 datasets (17 price + 6 PE data) with clean singleton files
+  - Eliminated "No valid data after cleaning" warnings for all assets
+  - Enhanced data visualization pipeline with proper column mapping
+
+### Added
+
+- **Manual PE Data Workflow**: New dedicated folder and processing system for manual PE data updates
+  - Created `data/raw/pe/manual/` subfolder for user-provided PE data files
+  - Added `--process-manual-pe` command line option for processing manual files
+  - Automated validation, cleaning, and merging of manual PE data with existing data
+  - Comprehensive documentation and README files for user guidance
+  - Smart data integration prioritizing manual data over automated sources
+  - Support for multiple PE column formats (pe_ratio, pe, PE, PE_ratio)
+
+### Performance
+
+- **Data Loading Speed**: Significantly improved data loading performance
+  - Reduced file system overhead by eliminating complex file pattern matching
+  - Faster data merging with optimized deduplication logic
+  - Streamlined frontend data pipeline with direct singleton file access
+
 ## [0.3.4] - 2025-08-14
 
 ### Added
