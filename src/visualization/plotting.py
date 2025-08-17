@@ -281,9 +281,34 @@ def create_multi_asset_comparison(data_dict: Dict[str, pd.DataFrame],
     
     title = "Multi-Asset Comparison (All Start at 100)" if normalize_to_100 else "Multi-Asset Performance Comparison"
     
+    # Calculate x-axis range based on the filtered data
+    all_dates = []
+    for df in data_dict.values():
+        if not df.empty and date_col in df.columns:
+            # Handle mixed timezone formats robustly
+            try:
+                # First try with utc=True to handle timezone-aware data
+                dates = pd.to_datetime(df[date_col], utc=True).dt.tz_localize(None)
+            except:
+                try:
+                    # Fallback: try without UTC conversion
+                    dates = pd.to_datetime(df[date_col])
+                    if hasattr(dates.dt, 'tz') and dates.dt.tz is not None:
+                        dates = dates.dt.tz_localize(None)
+                except:
+                    # Last resort: use the original values if they're already datetime-like
+                    dates = df[date_col]
+            all_dates.extend(dates.tolist())
+    
+    xaxis_config = {"title": "Date"}
+    if all_dates:
+        min_date = min(all_dates)
+        max_date = max(all_dates)
+        xaxis_config["range"] = [min_date, max_date]
+    
     fig.update_layout(
         title=title,
-        xaxis_title="Date",
+        xaxis=xaxis_config,
         yaxis_title=y_title,
         hovermode='x unified',
         height=500,

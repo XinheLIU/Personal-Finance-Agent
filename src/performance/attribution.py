@@ -37,12 +37,14 @@ class AttributionResult:
 
 class PerformanceAttributor:
     """
-    Professional performance attribution analysis system
+    Standalone performance attribution analysis system
     
     Decomposes portfolio performance into:
     1. Asset-level price contributions
     2. Weight change (rebalancing) effects
     3. Interaction effects between price and weight changes
+    
+    Now operates independently from backtesting module.
     """
     
     def __init__(self, results_dir: str = "analytics/attribution"):
@@ -54,7 +56,301 @@ class PerformanceAttributor:
         """
         self.results_dir = Path(results_dir)
         self.results_dir.mkdir(parents=True, exist_ok=True)
-        LOG.info(f"Performance attribution system initialized, results dir: {self.results_dir}")
+        LOG.info(f"Standalone performance attribution system initialized, results dir: {self.results_dir}")
+    
+    def load_strategy_data(self, strategy_name: str, start_date: str, end_date: str) -> Dict[str, pd.DataFrame]:
+        """
+        Load strategy data for attribution analysis.
+        
+        Args:
+            strategy_name: Name of the strategy to analyze
+            start_date: Start date for analysis (YYYY-MM-DD)
+            end_date: End date for analysis (YYYY-MM-DD)
+            
+        Returns:
+            Dictionary with portfolio_data, asset_returns, weights_data
+        """
+        LOG.info(f"Loading strategy data for {strategy_name} from {start_date} to {end_date}")
+        
+        try:
+            # Load portfolio weights/holdings data
+            weights_data = self._load_portfolio_weights(strategy_name, start_date, end_date)
+            
+            # Load asset returns data
+            asset_returns = self._load_asset_returns(start_date, end_date)
+            
+            # Calculate portfolio performance from weights and returns
+            portfolio_data = self._calculate_portfolio_performance(weights_data, asset_returns)
+            
+            return {
+                'portfolio_data': portfolio_data,
+                'asset_returns': asset_returns,
+                'weights_data': weights_data
+            }
+            
+        except Exception as e:
+            LOG.error(f"Failed to load strategy data for {strategy_name}: {e}")
+            raise
+    
+    def _load_portfolio_weights(self, strategy_name: str, start_date: str, end_date: str) -> pd.DataFrame:
+        """Load portfolio weights from saved data or strategy configuration."""
+        strategy_safe = strategy_name.replace('/', '_').replace(' ', '_').lower()
+        
+        # Try to load from rebalancing log file first
+        rebal_file = Path("analytics/backtests") / f"{strategy_safe}_rebalance_log.csv"
+        if rebal_file.exists():
+            LOG.info(f"Loading weights from rebalancing log: {rebal_file}")
+            weights_df = pd.read_csv(rebal_file)
+            weights_df['date'] = pd.to_datetime(weights_df['date'])
+            # Normalize to date-only to align with returns
+            weights_df['date'] = weights_df['date'].dt.normalize()
+            # Filter requested period
+            weights_df = weights_df[(weights_df['date'] >= pd.to_datetime(start_date)) & (weights_df['date'] <= pd.to_datetime(end_date))]
+            
+            if not weights_df.empty and len(weights_df) >= 2:
+                weights_df.set_index('date', inplace=True)
+                return weights_df
+            else:
+                LOG.warning("Rebalance log has no data in requested period; falling back to configured/equal weights")
+        
+        # Fallback: load from strategy configuration
+        return self._load_strategy_weights(strategy_name, start_date, end_date)
+    
+    def _load_strategy_weights(self, strategy_name: str, start_date: str, end_date: str) -> pd.DataFrame:
+        """Load weights from strategy configuration."""
+        from src.strategies.registry import strategy_registry
+        
+        try:
+            strategy_class = strategy_registry.get(strategy_name)
+            if strategy_class is not None and hasattr(strategy_class, 'get_static_target_weights'):
+                target_weights = strategy_class.get_static_target_weights()
+                # Create daily series for period
+                date_range = pd.date_range(start=start_date, end=end_date, freq='D')
+                weights_data = []
+                for date in date_range:
+                    row = {'date': date}
+                    row.update(target_weights)
+                    weights_data.append(row)
+                weights_df = pd.DataFrame(weights_data)
+                weights_df['date'] = pd.to_datetime(weights_df['date']).dt.normalize()
+                weights_df.set_index('date', inplace=True)
+                LOG.info(f"Created static weights for {strategy_name} with {len(target_weights)} assets")
+                return weights_df
+        except Exception as e:
+            LOG.warning(f"Could not load strategy weights for {strategy_name}: {e}")
+        
+        # Final fallback: equal weights
+        from config.assets import TRADABLE_ASSETS
+        equal_weight = 1.0 / len(TRADABLE_ASSETS)
+        date_range = pd.date_range(start=start_date, end=end_date, freq='D')
+        
+        weights_data = []
+        for date in date_range:
+            row = {'date': date}
+            for asset in TRADABLE_ASSETS.keys():
+                row[asset] = equal_weight
+            weights_data.append(row)
+        
+        weights_df = pd.DataFrame(weights_data)
+        weights_df.set_index('date', inplace=True)
+        
+        LOG.warning(f"Using equal weights fallback for {strategy_name}")
+        return weights_df
+    
+    def _load_asset_returns(self, start_date: str, end_date: str) -> pd.DataFrame:
+        """Load asset returns data."""
+        from src.data_center.data_loader import DataLoader
+        
+        data_loader = DataLoader()
+        market_data = data_loader.load_market_data(normalize=True)
+        
+        returns_data = {}
+        for asset, data in market_data.items():
+            if isinstance(data, pd.DataFrame) and 'close' in data.columns:
+                # Filter by date range
+                data_filtered = data[(data.index >= pd.to_datetime(start_date)) & (data.index <= pd.to_datetime(end_date))]
+                
+                if len(data_filtered) > 1:
+                    # Calculate daily returns
+                    returns_data[asset] = data_filtered['close'].pct_change().dropna()
+        
+        if returns_data:
+            returns_df = pd.DataFrame(returns_data)
+            returns_df = returns_df.fillna(0)
+            # Normalize to date-only to ease intersection with weights
+            if isinstance(returns_df.index, pd.DatetimeIndex):
+                returns_df.index = returns_df.index.normalize()
+            LOG.info(f"Loaded returns for {len(returns_data)} assets from {start_date} to {end_date}")
+            return returns_df
+        else:
+            raise ValueError(f"No asset returns data available for period {start_date} to {end_date}")
+    
+    def _calculate_portfolio_performance(self, weights_data: pd.DataFrame, asset_returns: pd.DataFrame) -> pd.DataFrame:
+        """Calculate portfolio performance from weights and returns."""
+        # Align dates
+        common_dates = weights_data.index.intersection(asset_returns.index)
+        if len(common_dates) < 2:
+            raise ValueError("Insufficient common dates between weights and returns data")
+        
+        portfolio_performance = []
+        initial_value = 100.0  # Start with base value of 100
+        
+        for i, date in enumerate(sorted(common_dates)):
+            if i == 0:
+                portfolio_performance.append({
+                    'date': date,
+                    'value': initial_value,
+                    'returns': 0.0
+                })
+                continue
+            
+            prev_date = sorted(common_dates)[i-1]
+            
+            # Get weights and returns for the period
+            weights = weights_data.loc[prev_date]
+            returns = asset_returns.loc[date]
+            
+            # Calculate portfolio return for the day
+            portfolio_return = 0.0
+            for asset in weights.index:
+                if asset in returns.index and not pd.isna(weights[asset]) and not pd.isna(returns[asset]):
+                    portfolio_return += weights[asset] * returns[asset]
+            
+            # Update portfolio value
+            prev_value = portfolio_performance[i-1]['value']
+            new_value = prev_value * (1 + portfolio_return)
+            
+            portfolio_performance.append({
+                'date': date,
+                'value': new_value,
+                'returns': portfolio_return
+            })
+        
+        portfolio_df = pd.DataFrame(portfolio_performance)
+        portfolio_df.set_index('date', inplace=True)
+        
+        LOG.info(f"Calculated portfolio performance for {len(portfolio_df)} periods")
+        return portfolio_df
+    
+    # Backward-compatible wrapper expected by tests/UI
+    def generate_attribution_report(self,
+                                    strategy_name: str,
+                                    portfolio_data: Optional[pd.DataFrame] = None,
+                                    asset_returns: Optional[pd.DataFrame] = None,
+                                    weights_data: Optional[pd.DataFrame] = None,
+                                    include_weekly: bool = True,
+                                    include_monthly: bool = True) -> Dict[str, Any]:
+        """
+        Compatibility method: if dataframes are provided, run attribution directly;
+        otherwise, fall back to loading recent period via run_attribution_analysis.
+        """
+        try:
+            if all(x is not None for x in [portfolio_data, asset_returns, weights_data]):
+                # Calculate daily attributions
+                daily_attributions = self.calculate_daily_attribution(
+                    portfolio_data, asset_returns, weights_data
+                )
+                if not daily_attributions:
+                    return {'error': 'Failed to calculate daily attributions'}
+                report: Dict[str, Any] = {
+                    'strategy_name': strategy_name,
+                    'analysis_period': {
+                        'start_date': str(min(portfolio_data.index.min(), asset_returns.index.min(), weights_data.index.min())),
+                        'end_date': str(max(portfolio_data.index.max(), asset_returns.index.max(), weights_data.index.max()))
+                    },
+                    'report_date': datetime.now().isoformat(),
+                    'daily_analysis': self.decompose_returns(daily_attributions)
+                }
+                if include_weekly:
+                    weekly = self.calculate_periodic_attribution(daily_attributions, 'weekly')
+                    if weekly:
+                        report['weekly_analysis'] = self.decompose_returns(weekly)
+                if include_monthly:
+                    monthly = self.calculate_periodic_attribution(daily_attributions, 'monthly')
+                    if monthly:
+                        report['monthly_analysis'] = self.decompose_returns(monthly)
+                return report
+            # No dataframes provided: require external dates via run_attribution_analysis
+            return {'error': 'Insufficient inputs: provide portfolio_data, asset_returns, and weights_data or use run_attribution_analysis with dates'}
+        except Exception as e:
+            LOG.error(f"generate_attribution_report failed: {e}")
+            return {'error': str(e)}
+
+    def run_attribution_analysis(self, 
+                                strategy_name: str,
+                                start_date: str,
+                                end_date: str,
+                                include_weekly: bool = True,
+                                include_monthly: bool = True) -> Dict[str, Any]:
+        """
+        Run comprehensive attribution analysis for a strategy.
+        
+        Args:
+            strategy_name: Name of the strategy to analyze
+            start_date: Start date for analysis (YYYY-MM-DD)
+            end_date: End date for analysis (YYYY-MM-DD)
+            include_weekly: Include weekly attribution analysis
+            include_monthly: Include monthly attribution analysis
+            
+        Returns:
+            Comprehensive attribution analysis report
+        """
+        LOG.info(f"Running attribution analysis for {strategy_name} from {start_date} to {end_date}")
+        
+        try:
+            # Load strategy data
+            strategy_data = self.load_strategy_data(strategy_name, start_date, end_date)
+            
+            # Calculate daily attributions
+            daily_attributions = self.calculate_daily_attribution(
+                strategy_data['portfolio_data'],
+                strategy_data['asset_returns'],
+                strategy_data['weights_data']
+            )
+            
+            if not daily_attributions:
+                return {'error': 'Failed to calculate daily attributions'}
+            
+            # Generate report sections
+            report = {
+                'strategy_name': strategy_name,
+                'analysis_period': {
+                    'start_date': start_date,
+                    'end_date': end_date
+                },
+                'report_date': datetime.now().isoformat(),
+                'daily_analysis': self.decompose_returns(daily_attributions)
+            }
+            
+            # Weekly analysis
+            if include_weekly:
+                weekly_attributions = self.calculate_periodic_attribution(
+                    daily_attributions, 'weekly'
+                )
+                if weekly_attributions:
+                    report['weekly_analysis'] = self.decompose_returns(weekly_attributions)
+            
+            # Monthly analysis
+            if include_monthly:
+                monthly_attributions = self.calculate_periodic_attribution(
+                    daily_attributions, 'monthly'
+                )
+                if monthly_attributions:
+                    report['monthly_analysis'] = self.decompose_returns(monthly_attributions)
+            
+            # Save detailed data
+            self.save_attribution_data(strategy_name, {
+                'daily': daily_attributions,
+                'weekly': weekly_attributions if include_weekly else [],
+                'monthly': monthly_attributions if include_monthly else []
+            })
+            
+            LOG.info(f"Attribution analysis completed successfully for {strategy_name}")
+            return report
+            
+        except Exception as e:
+            LOG.error(f"Error in attribution analysis for {strategy_name}: {e}")
+            return {'error': f'Attribution analysis failed: {str(e)}'}
     
     def calculate_daily_attribution(self, 
                                   portfolio_data: pd.DataFrame,
@@ -79,17 +375,10 @@ class PerformanceAttributor:
         # Align all data on common dates
         try:
             # Ensure all data has datetime indices
-            if not isinstance(portfolio_data.index, pd.DatetimeIndex):
-                LOG.warning("Portfolio data index is not datetime, attempting conversion")
-                portfolio_data.index = pd.to_datetime(portfolio_data.index)
-            
-            if not isinstance(asset_returns.index, pd.DatetimeIndex):
-                LOG.warning("Asset returns index is not datetime, attempting conversion")  
-                asset_returns.index = pd.to_datetime(asset_returns.index)
-                
-            if not isinstance(weights_data.index, pd.DatetimeIndex):
-                LOG.warning("Weights data index is not datetime, attempting conversion")
-                weights_data.index = pd.to_datetime(weights_data.index)
+            for df_name, df in [('portfolio', portfolio_data), ('returns', asset_returns), ('weights', weights_data)]:
+                if not isinstance(df.index, pd.DatetimeIndex):
+                    LOG.warning(f"{df_name} data index is not datetime, attempting conversion")
+                    df.index = pd.to_datetime(df.index)
             
             common_dates = portfolio_data.index.intersection(
                 asset_returns.index.intersection(weights_data.index)
@@ -97,7 +386,7 @@ class PerformanceAttributor:
             
             LOG.info(f"Attribution data alignment: Portfolio={len(portfolio_data)}, Assets={len(asset_returns)}, Weights={len(weights_data)}, Common={len(common_dates)}")
             
-            if len(common_dates) < 5:  # Need at least a few days for meaningful analysis
+            if len(common_dates) < 5:
                 LOG.warning(f"Insufficient common dates for attribution analysis: {len(common_dates)} days")
                 return []
                 
@@ -109,51 +398,48 @@ class PerformanceAttributor:
         returns_aligned = asset_returns.loc[common_dates]
         weights_aligned = weights_data.loc[common_dates]
 
-        # Ensure column labels are strings and match across returns/weights
+        # Clean and filter data
         try:
-            # Allowed/known assets come from configuration
-            allowed_assets = set(ASSETS.keys())
+            from config.assets import TRADABLE_ASSETS
+            allowed_assets = set(TRADABLE_ASSETS.keys())
 
-            # Drop any non-string columns from weights (e.g., mistakenly propagated timestamps)
-            weight_cols = [col for col in weights_aligned.columns if isinstance(col, str)]
-            weights_aligned = weights_aligned[weight_cols]
+            # Filter weights to known assets only
+            weight_cols = [col for col in weights_aligned.columns 
+                          if isinstance(col, str) and col in allowed_assets]
+            if weight_cols:
+                weights_aligned = weights_aligned[weight_cols]
 
-            # Restrict to known assets only
-            known_weight_cols = [c for c in weights_aligned.columns if c in allowed_assets]
-            if known_weight_cols:
-                weights_aligned = weights_aligned[known_weight_cols]
+            # Filter returns to known assets only  
+            return_cols = [col for col in returns_aligned.columns
+                          if isinstance(col, str) and col in allowed_assets]
+            if return_cols:
+                returns_aligned = returns_aligned[return_cols]
 
-            # Sanitize returns columns similarly
-            ret_cols = [col for col in returns_aligned.columns if isinstance(col, str)]
-            returns_aligned = returns_aligned[ret_cols]
-            known_return_cols = [c for c in returns_aligned.columns if c in allowed_assets]
-            if known_return_cols:
-                returns_aligned = returns_aligned[known_return_cols]
-
-            # Final intersection to ensure both frames share same columns
+            # Ensure both have same assets
             shared_cols = [c for c in weights_aligned.columns if c in returns_aligned.columns]
             if shared_cols:
                 weights_aligned = weights_aligned[shared_cols]
                 returns_aligned = returns_aligned[shared_cols]
+                
         except Exception as e:
-            LOG.warning(f"Failed to sanitize returns/weights columns: {e}")
+            LOG.warning(f"Failed to clean attribution data: {e}")
 
-        # Filter out assets that have zero (or NaN) weights across the entire period
+        # Filter out assets with no meaningful weights
         try:
-            nonzero_weight_assets = []
+            nonzero_assets = []
             for col in weights_aligned.columns:
                 col_series = pd.to_numeric(weights_aligned[col], errors='coerce').fillna(0.0)
-                if float(col_series.abs().sum()) > 0.0:
-                    nonzero_weight_assets.append(col)
+                if float(col_series.abs().sum()) > 0.001:  # Minimum threshold
+                    nonzero_assets.append(col)
 
-            if nonzero_weight_assets:
-                weights_aligned = weights_aligned[nonzero_weight_assets]
-                # Keep only asset returns for assets that appear in weights
-                existing_return_cols = [c for c in nonzero_weight_assets if c in returns_aligned.columns]
+            if nonzero_assets:
+                weights_aligned = weights_aligned[nonzero_assets]
+                existing_return_cols = [c for c in nonzero_assets if c in returns_aligned.columns]
                 if existing_return_cols:
                     returns_aligned = returns_aligned[existing_return_cols]
+                    
         except Exception as e:
-            LOG.warning(f"Failed to filter zero-weight assets for attribution: {e}")
+            LOG.warning(f"Failed to filter zero-weight assets: {e}")
         
         attribution_results = []
         
@@ -164,13 +450,11 @@ class PerformanceAttributor:
             # Portfolio return for the period
             if 'returns' in portfolio_aligned.columns:
                 portfolio_return = portfolio_aligned.loc[current_date, 'returns']
-                # Ensure we get a scalar value, not a Series
                 if isinstance(portfolio_return, pd.Series):
                     portfolio_return = portfolio_return.iloc[0]
             else:
                 current_value = portfolio_aligned.loc[current_date, 'value']
                 prev_value = portfolio_aligned.loc[prev_date, 'value']
-                # Ensure scalar values
                 if isinstance(current_value, pd.Series):
                     current_value = current_value.iloc[0]
                 if isinstance(prev_value, pd.Series):
@@ -189,7 +473,6 @@ class PerformanceAttributor:
             asset_returns_period = returns_aligned.loc[current_date]
             
             # Calculate asset contributions using previous period weights
-            # This represents how much each asset contributed based on their holdings
             asset_contributions = {}
             total_asset_contribution = 0
             
@@ -199,7 +482,6 @@ class PerformanceAttributor:
                     if pd.isna(asset_return) or not np.isfinite(asset_return):
                         asset_return = 0
                     
-                    # Asset contribution = previous_weight * asset_return
                     contribution = prev_weights[asset] * asset_return
                     asset_contributions[asset] = contribution
                     total_asset_contribution += contribution
@@ -207,11 +489,9 @@ class PerformanceAttributor:
                     asset_contributions[asset] = 0
             
             # Calculate weight change impact
-            # This captures the effect of rebalancing activities
             weight_changes = current_weights - prev_weights
             
             # Weight change impact using current period returns
-            # Represents gains/losses from changing allocations
             rebalancing_impact = {}
             total_rebalancing_impact = 0
             
@@ -222,7 +502,6 @@ class PerformanceAttributor:
                     if pd.isna(asset_return) or not np.isfinite(asset_return):
                         asset_return = 0
                     
-                    # Rebalancing impact = weight_change * asset_return
                     impact = weight_change * asset_return
                     rebalancing_impact[asset] = impact
                     total_rebalancing_impact += impact
@@ -279,7 +558,6 @@ class PerformanceAttributor:
         attribution_df.set_index('date', inplace=True)
         
         # Define aggregation frequency
-        # Note: Pandas 'M' is deprecated in favor of 'ME' (month-end)
         freq = 'W' if period == 'weekly' else 'ME' if period == 'monthly' else 'D'
         
         # Aggregate by period
@@ -370,10 +648,10 @@ class PerformanceAttributor:
         analysis_df = pd.DataFrame(analysis_data)
         analysis_df['date'] = pd.to_datetime(analysis_df['date'])
         
-        # Filter to valid asset keys (strings present in configured assets)
+        # Filter to valid asset keys
         try:
-            from config.assets import ASSETS as _ASSETS
-            valid_assets = {a for a in all_assets if isinstance(a, str) and a in _ASSETS}
+            from config.assets import TRADABLE_ASSETS
+            valid_assets = {a for a in all_assets if isinstance(a, str) and a in TRADABLE_ASSETS}
         except Exception:
             valid_assets = {a for a in all_assets if isinstance(a, str)}
         
@@ -449,75 +727,6 @@ class PerformanceAttributor:
             'bottom_contributors': dict(bottom_contributors),
             'attribution_data': analysis_df.to_dict('records')
         }
-    
-    def generate_attribution_report(self, 
-                                  strategy_name: str,
-                                  portfolio_data: pd.DataFrame,
-                                  asset_returns: pd.DataFrame,
-                                  weights_data: pd.DataFrame,
-                                  include_weekly: bool = True,
-                                  include_monthly: bool = True) -> Dict[str, Any]:
-        """
-        Generate comprehensive attribution report for a strategy
-        
-        Args:
-            strategy_name: Name of the strategy being analyzed
-            portfolio_data: Portfolio performance data
-            asset_returns: Individual asset returns
-            weights_data: Asset weights over time
-            include_weekly: Include weekly attribution analysis
-            include_monthly: Include monthly attribution analysis
-            
-        Returns:
-            Comprehensive attribution analysis report
-        """
-        LOG.info(f"Generating comprehensive attribution report for {strategy_name}")
-        
-        try:
-            # Calculate daily attributions
-            daily_attributions = self.calculate_daily_attribution(
-                portfolio_data, asset_returns, weights_data
-            )
-            
-            if not daily_attributions:
-                return {'error': 'Failed to calculate daily attributions'}
-            
-            # Generate report sections
-            report = {
-                'strategy_name': strategy_name,
-                'report_date': datetime.now().isoformat(),
-                'daily_analysis': self.decompose_returns(daily_attributions)
-            }
-            
-            # Weekly analysis
-            if include_weekly:
-                weekly_attributions = self.calculate_periodic_attribution(
-                    daily_attributions, 'weekly'
-                )
-                if weekly_attributions:
-                    report['weekly_analysis'] = self.decompose_returns(weekly_attributions)
-            
-            # Monthly analysis
-            if include_monthly:
-                monthly_attributions = self.calculate_periodic_attribution(
-                    daily_attributions, 'monthly'
-                )
-                if monthly_attributions:
-                    report['monthly_analysis'] = self.decompose_returns(monthly_attributions)
-            
-            # Save detailed data
-            self.save_attribution_data(strategy_name, {
-                'daily': daily_attributions,
-                'weekly': weekly_attributions if include_weekly else [],
-                'monthly': monthly_attributions if include_monthly else []
-            })
-            
-            LOG.info(f"Attribution report generated successfully for {strategy_name}")
-            return report
-            
-        except Exception as e:
-            LOG.error(f"Error generating attribution report for {strategy_name}: {e}")
-            return {'error': f'Attribution analysis failed: {str(e)}'}
     
     def save_attribution_data(self, 
                             strategy_name: str, 

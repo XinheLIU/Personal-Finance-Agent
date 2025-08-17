@@ -175,7 +175,9 @@ class DynamicAllocationStrategy(bt.Strategy):
 
         for asset, weight in target_weights.items():
             rebalance_details[f'{asset}_target_weight'] = weight
-            rebalance_details[f'{asset}_price'] = self.data_feeds[asset].close[0]
+            # Attach price only if feed exists
+            if asset in self.data_feeds and self.data_feeds[asset] is not None:
+                rebalance_details[f'{asset}_price'] = self.data_feeds[asset].close[0]
             rebalance_details[f'{asset}_pe_percentile'] = pe_percentiles.get(asset)
         
         rebalance_details['US_10Y_yield'] = current_yield

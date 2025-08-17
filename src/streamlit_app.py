@@ -7,8 +7,9 @@ import streamlit as st
 import pandas as pd
 import json
 import os
-from datetime import datetime, date
-from typing import Dict, Optional
+import plotly.graph_objects as go
+from datetime import datetime, date, timedelta
+from typing import Dict, Optional, Any
 
 # Configure Streamlit page
 st.set_page_config(
@@ -557,15 +558,17 @@ def main():
     st.title("💰 Personal Finance Agent")
     st.markdown("Professional quantitative investment management system")
     
-    # Sidebar navigation
+    # Sidebar navigation - Updated with Attribution tab
     st.sidebar.title("Navigation")
-    page_names = ["🎯 Backtest", "📊 Portfolio", "📈 Data Explorer", "⚙️ System"]
+    page_names = ["🎯 Backtest", "📊 Attribution", "💼 Portfolio", "📈 Data Explorer", "⚙️ System"]
     page = st.sidebar.radio("Select Page:", page_names, index=0)
     
     # Display selected page
     if page == "🎯 Backtest":
         show_backtest_page()
-    elif page == "📊 Portfolio":
+    elif page == "📊 Attribution":
+        show_attribution_page()
+    elif page == "💼 Portfolio":
         show_portfolio_page()
     elif page == "📈 Data Explorer":
         show_data_explorer_page()
@@ -786,6 +789,452 @@ def show_backtest_page():
     else:
         st.info("💡 Configure your strategy parameters above and click 'Run Backtest' to see performance results and visualization.")
 
+def show_attribution_page():
+    """Display the performance attribution analysis interface."""
+    st.header("📊 Performance Attribution Analysis")
+    st.markdown("Analyze how portfolio returns are attributed to individual assets and sectors")
+    
+    # Configuration section
+    config_col1, config_col2, config_col3 = st.columns([1, 1, 1])
+    
+    with config_col1:
+        st.subheader("Strategy Selection")
+        
+        # Strategy selection
+        strategies = strategy_registry.list_strategies()
+        strategy_names = list(strategies.keys())
+        
+        strategy_choice = st.selectbox(
+            "Select Strategy:",
+            options=strategy_names,
+            index=0 if strategy_names else None,
+            help="Choose the strategy to analyze for performance attribution"
+        )
+        
+        # Attribution type selection
+        attribution_type = st.selectbox(
+            "Attribution Method:",
+            options=["Asset-Level Attribution", "Sector-Based Attribution"],
+            index=0,
+            help="Choose between asset-level or sector-based attribution analysis"
+        )
+    
+    with config_col2:
+        st.subheader("Period Selection")
+        
+        # Period preset selection
+        period_presets = {
+            "Last Week": 7,
+            "Last Month": 30,
+            "Last 3 Months": 90,
+            "Last 6 Months": 180,
+            "Last Year": 365,
+            "Custom Range": 0
+        }
+        
+        period_choice = st.selectbox(
+            "Analysis Period:",
+            options=list(period_presets.keys()),
+            index=1,  # Default to "Last Month"
+            help="Choose a preset period or select Custom Range for specific dates"
+        )
+        
+        # Date range selection
+        if period_choice == "Custom Range":
+            col_start, col_end = st.columns(2)
+            with col_start:
+                start_date = st.date_input(
+                    "Start Date:",
+                    value=date.today() - timedelta(days=30),
+                    max_value=date.today()
+                )
+            with col_end:
+                end_date = st.date_input(
+                    "End Date:",
+                    value=date.today(),
+                    max_value=date.today()
+                )
+        else:
+            days_back = period_presets[period_choice]
+            end_date = date.today()
+            start_date = end_date - timedelta(days=days_back)
+            st.info(f"Analyzing from {start_date} to {end_date}")
+        
+        # Attribution frequency
+        attribution_frequency = st.selectbox(
+            "Attribution Frequency:",
+            options=["Daily", "Weekly", "Monthly"],
+            index=1,  # Default to Weekly
+            help="Choose the frequency for attribution calculations"
+        )
+    
+    with config_col3:
+        st.subheader("Analysis Options")
+        
+        # Benchmark selection for sector attribution
+        if attribution_type == "Sector-Based Attribution":
+            benchmark_options = ["Balanced Portfolio", "Equal Weight", "60/40 Portfolio"]
+            benchmark_choice = st.selectbox(
+                "Benchmark:",
+                options=benchmark_options,
+                index=0,
+                help="Choose benchmark for sector attribution comparison"
+            )
+        
+        # Export options
+        export_format = st.selectbox(
+            "Export Format:",
+            options=["CSV", "Excel", "Both"],
+            index=2,
+            help="Choose format for exporting attribution results"
+        )
+        
+        # Analysis button
+        run_attribution = st.button("🔍 Run Attribution Analysis", type="primary", use_container_width=True)
+    
+    # Results section
+    if run_attribution and strategy_choice:
+        st.divider()
+        st.subheader("Attribution Analysis Results")
+        
+        # Show loading spinner
+        with st.spinner("Running attribution analysis..."):
+            try:
+                if attribution_type == "Asset-Level Attribution":
+                    results = run_asset_attribution_analysis(
+                        strategy_choice=strategy_choice,
+                        start_date=start_date.strftime("%Y-%m-%d"),
+                        end_date=end_date.strftime("%Y-%m-%d"),
+                        frequency=attribution_frequency.lower()
+                    )
+                else:
+                    results = run_sector_attribution_analysis(
+                        strategy_choice=strategy_choice,
+                        start_date=start_date.strftime("%Y-%m-%d"),
+                        end_date=end_date.strftime("%Y-%m-%d"),
+                        frequency=attribution_frequency.lower(),
+                        benchmark=benchmark_choice
+                    )
+                
+                if "error" in results:
+                    st.error(f"Attribution analysis failed: {results['error']}")
+                else:
+                    # Display results based on attribution type
+                    if attribution_type == "Asset-Level Attribution":
+                        display_asset_attribution_results(results, strategy_choice)
+                    else:
+                        display_sector_attribution_results(results, strategy_choice)
+                        
+            except Exception as e:
+                st.error(f"An error occurred during attribution analysis: {str(e)}")
+                LOG.error(f"Attribution analysis error: {e}")
+    
+    else:
+        # Show informational content when no analysis is running
+        st.info("💡 Configure your attribution analysis parameters above and click 'Run Attribution Analysis' to see detailed performance attribution.")
+        
+        # Educational content about attribution analysis
+        with st.expander("📚 About Performance Attribution Analysis", expanded=False):
+            st.markdown("""
+            **Performance Attribution** decomposes portfolio returns to understand the sources of performance:
+            
+            **Asset-Level Attribution:**
+            - **Asset Contribution**: How much each individual asset contributed to portfolio returns
+            - **Rebalancing Impact**: Effect of changing asset allocations over time
+            - **Interaction Effects**: Combined impact of price movements and weight changes
+            
+            **Sector-Based Attribution (Brinson Model):**
+            - **Allocation Effect**: Impact of over/under-weighting sectors vs benchmark
+            - **Selection Effect**: Impact of asset selection within sectors
+            - **Interaction Effect**: Combined allocation and selection impact
+            
+            **Use Cases:**
+            - Identify top performing assets or sectors
+            - Understand impact of rebalancing decisions
+            - Compare portfolio performance vs benchmarks
+            - Optimize future allocation strategies
+            """)
+
+
+def run_asset_attribution_analysis(strategy_choice: str, start_date: str, end_date: str, frequency: str) -> Dict[str, Any]:
+    """Run asset-level attribution analysis."""
+    try:
+        from src.performance.attribution import PerformanceAttributor
+        
+        attributor = PerformanceAttributor()
+        
+        # Run attribution analysis
+        results = attributor.run_attribution_analysis(
+            strategy_name=strategy_choice,
+            start_date=start_date,
+            end_date=end_date,
+            include_weekly=(frequency in ['weekly', 'daily']),
+            include_monthly=(frequency == 'monthly')
+        )
+        
+        return results
+        
+    except Exception as e:
+        LOG.error(f"Asset attribution analysis failed: {e}")
+        return {"error": str(e)}
+
+
+def run_sector_attribution_analysis(strategy_choice: str, start_date: str, end_date: str, frequency: str, benchmark: str) -> Dict[str, Any]:
+    """Run sector-based attribution analysis."""
+    try:
+        from src.performance.sector_attribution import SectorAttributor
+        
+        sector_attributor = SectorAttributor()
+        
+        # Load portfolio data
+        portfolio_weights, asset_returns, benchmark_weights = sector_attributor.load_portfolio_data(
+            strategy_name=strategy_choice,
+            start_date=start_date,
+            end_date=end_date
+        )
+        
+        # Calculate sector attribution
+        daily_results = sector_attributor.calculate_sector_attribution(
+            portfolio_weights=portfolio_weights,
+            asset_returns=asset_returns,
+            benchmark_weights=benchmark_weights,
+            period='daily'
+        )
+        
+        if not daily_results:
+            return {"error": "No attribution results calculated"}
+        
+        # Aggregate results based on frequency
+        if frequency == 'weekly':
+            aggregated_results = sector_attributor.aggregate_attribution_results(daily_results, 'weekly')
+        elif frequency == 'monthly':
+            aggregated_results = sector_attributor.aggregate_attribution_results(daily_results, 'monthly')
+        else:
+            aggregated_results = daily_results
+        
+        # Create summary
+        summary = sector_attributor.create_attribution_summary(aggregated_results)
+        
+        # Save results
+        saved_files = sector_attributor.save_attribution_results(
+            strategy_name=strategy_choice,
+            attribution_results=aggregated_results,
+            summary=summary
+        )
+        
+        return {
+            'attribution_results': aggregated_results,
+            'summary': summary,
+            'saved_files': saved_files,
+            'frequency': frequency,
+            'benchmark': benchmark
+        }
+        
+    except Exception as e:
+        LOG.error(f"Sector attribution analysis failed: {e}")
+        return {"error": str(e)}
+
+
+def display_asset_attribution_results(results: Dict[str, Any], strategy_name: str):
+    """Display asset-level attribution results."""
+    st.subheader(f"Asset Attribution Analysis - {strategy_name}")
+    
+    # Use existing attribution display function
+    display_attribution_analysis(results, strategy_name)
+
+
+def display_sector_attribution_results(results: Dict[str, Any], strategy_name: str):
+    """Display sector-based attribution results."""
+    st.subheader(f"Sector Attribution Analysis - {strategy_name}")
+    
+    summary = results.get('summary', {})
+    attribution_results = results.get('attribution_results', [])
+    
+    if not summary or 'error' in summary:
+        st.error(f"Failed to generate sector attribution summary: {summary.get('error', 'Unknown error')}")
+        return
+    
+    # Summary metrics
+    total_effects = summary.get('total_effects', {})
+    
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.metric(
+            "Total Excess Return",
+            f"{total_effects.get('total_excess_return', 0):.2%}",
+            help="Total outperformance vs benchmark"
+        )
+    
+    with col2:
+        st.metric(
+            "Allocation Effect",
+            f"{total_effects.get('total_allocation_effect', 0):.2%}",
+            help="Impact of sector over/under-weighting"
+        )
+    
+    with col3:
+        st.metric(
+            "Selection Effect", 
+            f"{total_effects.get('total_selection_effect', 0):.2%}",
+            help="Impact of asset selection within sectors"
+        )
+    
+    with col4:
+        st.metric(
+            "Interaction Effect",
+            f"{total_effects.get('total_interaction_effect', 0):.2%}",
+            help="Combined allocation and selection impact"
+        )
+    
+    # Sector attribution table (similar to the provided image)
+    st.subheader("Sector Attribution Breakdown")
+    
+    sector_summary = summary.get('sector_summary', {})
+    if sector_summary:
+        # Create attribution table
+        table_data = []
+        for sector, data in sector_summary.items():
+            table_data.append({
+                'Sector': sector,
+                'Portfolio Weight': f"{data.get('portfolio_weight', 0):.1%}",
+                'Benchmark Weight': f"{data.get('benchmark_weight', 0):.1%}",
+                'Portfolio Return': f"{data.get('portfolio_return', 0):.2%}",
+                'Benchmark Return': f"{data.get('benchmark_return', 0):.2%}",
+                'Allocation Effect': f"{data.get('allocation_effect', 0):.2%}",
+                'Selection Effect': f"{data.get('selection_effect', 0):.2%}",
+                'Interaction Effect': f"{data.get('interaction_effect', 0):.2%}",
+                'Total Effect': f"{data.get('total_effect', 0):.2%}"
+            })
+        
+        attribution_df = pd.DataFrame(table_data)
+        st.dataframe(attribution_df, use_container_width=True, hide_index=True)
+    
+    # Charts
+    chart_col1, chart_col2 = st.columns(2)
+    
+    with chart_col1:
+        st.subheader("Attribution Effects by Sector")
+        if sector_summary:
+            # Create stacked bar chart of attribution effects
+            sectors = list(sector_summary.keys())
+            allocation_effects = [sector_summary[s].get('allocation_effect', 0) for s in sectors]
+            selection_effects = [sector_summary[s].get('selection_effect', 0) for s in sectors]
+            interaction_effects = [sector_summary[s].get('interaction_effect', 0) for s in sectors]
+            
+            fig = go.Figure(data=[
+                go.Bar(name='Allocation Effect', x=sectors, y=allocation_effects, marker_color='lightblue'),
+                go.Bar(name='Selection Effect', x=sectors, y=selection_effects, marker_color='orange'),
+                go.Bar(name='Interaction Effect', x=sectors, y=interaction_effects, marker_color='lightgreen')
+            ])
+            
+            fig.update_layout(
+                title="Attribution Effects Breakdown",
+                xaxis_title="Sectors",
+                yaxis_title="Attribution Effect",
+                barmode='stack',
+                height=400
+            )
+            
+            st.plotly_chart(fig, use_container_width=True)
+    
+    with chart_col2:
+        st.subheader("Top Contributing Sectors")
+        top_contributors = summary.get('top_contributors', {})
+        if top_contributors:
+            contrib_data = []
+            for sector, effect in top_contributors.items():
+                contrib_data.append({
+                    'Sector': sector,
+                    'Total Effect': effect
+                })
+            
+            contrib_df = pd.DataFrame(contrib_data)
+            
+            # Create horizontal bar chart
+            fig = go.Figure(go.Bar(
+                x=contrib_df['Total Effect'],
+                y=contrib_df['Sector'],
+                orientation='h',
+                marker_color=['green' if x >= 0 else 'red' for x in contrib_df['Total Effect']]
+            ))
+            
+            fig.update_layout(
+                title="Top Contributors",
+                xaxis_title="Total Attribution Effect",
+                yaxis_title="Sectors",
+                height=400
+            )
+            
+            st.plotly_chart(fig, use_container_width=True)
+    
+    # Export section
+    st.subheader("📥 Export Attribution Results")
+    
+    col1, col2, col3 = st.columns(3)
+    
+    saved_files = results.get('saved_files', {})
+    
+    with col1:
+        if 'detailed_csv' in saved_files:
+            try:
+                df = pd.DataFrame([
+                    {
+                        'Date': r.date.strftime('%Y-%m-%d'),
+                        'Sector': r.sector,
+                        'Portfolio_Weight': r.portfolio_weight,
+                        'Benchmark_Weight': r.benchmark_weight,
+                        'Allocation_Effect': r.allocation_effect,
+                        'Selection_Effect': r.selection_effect,
+                        'Total_Effect': r.total_effect
+                    }
+                    for r in attribution_results
+                ])
+                
+                csv_data = df.to_csv(index=False)
+                st.download_button(
+                    label="Download CSV",
+                    data=csv_data,
+                    file_name=f"{strategy_name}_sector_attribution.csv",
+                    mime="text/csv"
+                )
+            except Exception as e:
+                st.error(f"CSV export failed: {e}")
+    
+    with col2:
+        if 'summary_json' in saved_files:
+            try:
+                import json
+                json_data = json.dumps(summary, indent=2, default=str)
+                st.download_button(
+                    label="Download JSON Summary",
+                    data=json_data,
+                    file_name=f"{strategy_name}_attribution_summary.json",
+                    mime="application/json"
+                )
+            except Exception as e:
+                st.error(f"JSON export failed: {e}")
+    
+    with col3:
+        if st.button("View Raw Data"):
+            with st.expander("Raw Attribution Data", expanded=True):
+                if attribution_results:
+                    raw_data = []
+                    for r in attribution_results[:50]:  # Limit to first 50 rows for display
+                        raw_data.append({
+                            'Date': r.date.strftime('%Y-%m-%d'),
+                            'Sector': r.sector,
+                            'Portfolio Weight': f"{r.portfolio_weight:.3%}",
+                            'Benchmark Weight': f"{r.benchmark_weight:.3%}",
+                            'Allocation Effect': f"{r.allocation_effect:.4%}",
+                            'Selection Effect': f"{r.selection_effect:.4%}",
+                            'Interaction Effect': f"{r.interaction_effect:.4%}",
+                            'Total Effect': f"{r.total_effect:.4%}"
+                        })
+                    
+                    raw_df = pd.DataFrame(raw_data)
+                    st.dataframe(raw_df, use_container_width=True)
+
 def show_portfolio_page():
     """Display portfolio management interface."""
     st.header("📊 Portfolio Management")
@@ -981,14 +1430,8 @@ def show_data_explorer_page():
         st.subheader("Available Data Overview")
         st.dataframe(available_data_df, use_container_width=True, hide_index=True)
         
-        # Load data for visualization
-        data_dict = load_data_for_visualization()
-        
-        if data_dict:
-            # Interactive data explorer
-            display_data_explorer(data_dict)
-        else:
-            st.warning("No data available for visualization")
+        # Interactive data explorer (data loading happens inside with date filtering)
+        display_data_explorer()
     else:
         st.warning("No data files found. Please download data first.")
     

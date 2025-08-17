@@ -6,7 +6,7 @@ import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 import numpy as np
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any
 from .plotting import (
     create_portfolio_performance_chart,
     create_asset_allocation_pie_chart,
@@ -94,8 +94,12 @@ def display_backtest_summary(summary_df: pd.DataFrame):
             except:
                 st.metric(metric, value)
 
-def display_data_explorer(data_dict: Dict[str, pd.DataFrame]):
+def display_data_explorer():
     """Display interactive data explorer with multiple visualization options."""
+    # Load data for visualization inside function to ensure it's reactive to changes
+    from src.streamlit_app import load_data_for_visualization
+    data_dict = load_data_for_visualization()
+    
     if not data_dict:
         st.warning("No data available")
         return
@@ -165,15 +169,24 @@ def display_data_explorer(data_dict: Dict[str, pd.DataFrame]):
         
         date_col = 'Date' if 'Date' in df.columns else df.columns[0]
         
-        # Ensure the date column is datetime
+        # Ensure the date column is datetime and timezone-naive
         if not pd.api.types.is_datetime64_any_dtype(df[date_col]):
             try:
-                df[date_col] = pd.to_datetime(df[date_col])
+                df[date_col] = pd.to_datetime(df[date_col], utc=True).dt.tz_localize(None)
             except:
-                return df  # Return original if conversion fails
+                try:
+                    df[date_col] = pd.to_datetime(df[date_col])
+                except:
+                    return df  # Return original if conversion fails
+        else:
+            # If already datetime, ensure it's timezone-naive
+            if df[date_col].dt.tz is not None:
+                df[date_col] = df[date_col].dt.tz_localize(None)
         
-        # Convert start_date to datetime for comparison
+        # Convert start_date to timezone-naive datetime for comparison
         start_datetime = pd.to_datetime(start_date_filter)
+        if start_datetime.tz is not None:
+            start_datetime = start_datetime.tz_localize(None)
         
         # Filter data
         filtered_df = df[df[date_col] >= start_datetime].copy()
@@ -545,6 +558,362 @@ def display_attribution_analysis(attribution_data: Dict, strategy_name: str):
     
     else:
         st.info("No detailed attribution time series data available")
+
+def create_sector_attribution_table(sector_summary: Dict[str, Any]) -> pd.DataFrame:
+    """Create a professional sector attribution table similar to institutional reports."""
+    if not sector_summary:
+        return pd.DataFrame()
+    
+    table_data = []
+    for sector, data in sector_summary.items():
+        # Format data similar to the provided image
+        table_data.append({
+            'Sector': sector,
+            'Portfolio Weight': data.get('portfolio_weight', 0),
+            'Index Weight': data.get('benchmark_weight', 0),  
+            'Portfolio ROR': data.get('portfolio_return', 0),
+            'Index ROR': data.get('benchmark_return', 0),
+            'Allocation': data.get('allocation_effect', 0),
+            'Selection': data.get('selection_effect', 0),
+            'Interaction': data.get('interaction_effect', 0)
+        })
+    
+    df = pd.DataFrame(table_data)
+    
+    # Format as percentages
+    percentage_cols = ['Portfolio Weight', 'Index Weight', 'Portfolio ROR', 'Index ROR', 
+                      'Allocation', 'Selection', 'Interaction']
+    for col in percentage_cols:
+        if col in df.columns:
+            df[col] = df[col].apply(lambda x: f"{x:.2%}")
+    
+    return df
+
+
+def create_attribution_waterfall_chart(attribution_effects: Dict[str, float]) -> go.Figure:
+    """Create a waterfall chart showing attribution effects."""
+    categories = list(attribution_effects.keys())
+    values = list(attribution_effects.values())
+    
+    # Calculate cumulative values for waterfall
+    cumulative = [0]
+    for value in values[:-1]:  # Exclude the last value (total)
+        cumulative.append(cumulative[-1] + value)
+    
+    # Create waterfall chart
+    fig = go.Figure()
+    
+    # Add bars for each effect
+    colors = ['lightblue' if v >= 0 else 'lightcoral' for v in values]
+    
+    fig.add_trace(go.Waterfall(
+        name="Attribution Effects",
+        orientation="v",
+        measure=["relative"] * (len(values) - 1) + ["total"],
+        x=categories,
+        y=values,
+        connector={"line": {"color": "rgb(63, 63, 63)"}},
+        decreasing={"marker": {"color": "lightcoral"}},
+        increasing={"marker": {"color": "lightblue"}},
+        totals={"marker": {"color": "lightgreen"}}
+    ))
+    
+    fig.update_layout(
+        title="Performance Attribution Waterfall",
+        xaxis_title="Attribution Components",
+        yaxis_title="Return Contribution",
+        showlegend=False,
+        height=400
+    )
+    
+    return fig
+
+
+def create_sector_allocation_comparison(portfolio_weights: Dict[str, float], 
+                                      benchmark_weights: Dict[str, float]) -> go.Figure:
+    """Create a comparison chart of portfolio vs benchmark sector allocations."""
+    sectors = list(set(portfolio_weights.keys()) | set(benchmark_weights.keys()))
+    
+    portfolio_vals = [portfolio_weights.get(sector, 0) for sector in sectors]
+    benchmark_vals = [benchmark_weights.get(sector, 0) for sector in sectors]
+    
+    fig = go.Figure(data=[
+        go.Bar(name='Portfolio', x=sectors, y=portfolio_vals, marker_color='lightblue'),
+        go.Bar(name='Benchmark', x=sectors, y=benchmark_vals, marker_color='orange')
+    ])
+    
+    fig.update_layout(
+        title="Sector Allocation: Portfolio vs Benchmark",
+        xaxis_title="Sectors",
+        yaxis_title="Weight",
+        barmode='group',
+        height=400,
+        legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01)
+    )
+    
+    return fig
+
+
+def create_attribution_time_series(attribution_data: List[Dict]) -> go.Figure:
+    """Create time series chart of attribution effects over time."""
+    if not attribution_data:
+        return go.Figure()
+    
+    df = pd.DataFrame(attribution_data)
+    df['date'] = pd.to_datetime(df['date'])
+    
+    fig = go.Figure()
+    
+    # Add traces for different attribution effects
+    if 'allocation_effect' in df.columns:
+        fig.add_trace(go.Scatter(
+            x=df['date'],
+            y=df['allocation_effect'],
+            mode='lines',
+            name='Allocation Effect',
+            line=dict(color='lightblue', width=2)
+        ))
+    
+    if 'selection_effect' in df.columns:
+        fig.add_trace(go.Scatter(
+            x=df['date'],
+            y=df['selection_effect'],
+            mode='lines',
+            name='Selection Effect',
+            line=dict(color='orange', width=2)
+        ))
+    
+    if 'interaction_effect' in df.columns:
+        fig.add_trace(go.Scatter(
+            x=df['date'],
+            y=df['interaction_effect'],
+            mode='lines',
+            name='Interaction Effect',
+            line=dict(color='lightgreen', width=2)
+        ))
+    
+    if 'total_effect' in df.columns:
+        fig.add_trace(go.Scatter(
+            x=df['date'],
+            y=df['total_effect'],
+            mode='lines',
+            name='Total Effect',
+            line=dict(color='red', width=3)
+        ))
+    
+    fig.update_layout(
+        title="Attribution Effects Over Time",
+        xaxis_title="Date",
+        yaxis_title="Attribution Effect",
+        height=400,
+        legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01)
+    )
+    
+    return fig
+
+
+def display_sector_attribution_dashboard(attribution_summary: Dict[str, Any], 
+                                       attribution_results: List,
+                                       strategy_name: str):
+    """Display a comprehensive sector attribution dashboard."""
+    st.subheader(f"🎯 Sector Attribution Dashboard - {strategy_name}")
+    
+    if not attribution_summary or 'error' in attribution_summary:
+        st.error(f"Attribution analysis failed: {attribution_summary.get('error', 'Unknown error')}")
+        return
+    
+    # Summary metrics
+    total_effects = attribution_summary.get('total_effects', {})
+    
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.metric(
+            "🎯 Total Excess Return",
+            f"{total_effects.get('total_excess_return', 0):.2%}",
+            help="Total portfolio outperformance vs benchmark"
+        )
+    
+    with col2:
+        st.metric(
+            "⚖️ Allocation Effect",
+            f"{total_effects.get('total_allocation_effect', 0):.2%}",
+            help="Impact of sector over/under-weighting decisions"
+        )
+    
+    with col3:
+        st.metric(
+            "🎪 Selection Effect",
+            f"{total_effects.get('total_selection_effect', 0):.2%}",
+            help="Impact of asset selection within sectors"
+        )
+    
+    with col4:
+        st.metric(
+            "🔗 Interaction Effect",
+            f"{total_effects.get('total_interaction_effect', 0):.2%}",
+            help="Combined allocation and selection interaction"
+        )
+    
+    # Professional attribution table (styled like institutional reports)
+    st.subheader("📋 Sector Attribution Analysis")
+    
+    sector_summary = attribution_summary.get('sector_summary', {})
+    if sector_summary:
+        attribution_table = create_sector_attribution_table(sector_summary)
+        
+        # Style the table to look professional
+        styled_table = attribution_table.style.format({
+            'Portfolio Weight': '{:.1%}',
+            'Index Weight': '{:.1%}',
+            'Portfolio ROR': '{:.2%}',
+            'Index ROR': '{:.2%}',
+            'Allocation': '{:.3%}',
+            'Selection': '{:.3%}',
+            'Interaction': '{:.3%}'
+        }).background_gradient(subset=['Allocation', 'Selection', 'Interaction'], cmap='RdYlGn', center=0)
+        
+        st.dataframe(styled_table, use_container_width=True)
+    
+    # Visualization section
+    st.subheader("📊 Attribution Visualizations")
+    
+    chart_col1, chart_col2 = st.columns(2)
+    
+    with chart_col1:
+        # Attribution waterfall chart
+        if total_effects:
+            waterfall_data = {
+                'Allocation Effect': total_effects.get('total_allocation_effect', 0),
+                'Selection Effect': total_effects.get('total_selection_effect', 0),
+                'Interaction Effect': total_effects.get('total_interaction_effect', 0),
+                'Total Excess Return': total_effects.get('total_excess_return', 0)
+            }
+            
+            waterfall_fig = create_attribution_waterfall_chart(waterfall_data)
+            st.plotly_chart(waterfall_fig, use_container_width=True)
+    
+    with chart_col2:
+        # Top contributors chart
+        top_contributors = attribution_summary.get('top_contributors', {})
+        if top_contributors:
+            sectors = list(top_contributors.keys())
+            effects = list(top_contributors.values())
+            
+            fig = go.Figure(go.Bar(
+                x=effects,
+                y=sectors,
+                orientation='h',
+                marker_color=['green' if x >= 0 else 'red' for x in effects],
+                text=[f"{x:.2%}" for x in effects],
+                textposition='auto'
+            ))
+            
+            fig.update_layout(
+                title="🏆 Top Contributing Sectors",
+                xaxis_title="Total Attribution Effect",
+                yaxis_title="Sectors",
+                height=400
+            )
+            
+            st.plotly_chart(fig, use_container_width=True)
+    
+    # Time series analysis
+    st.subheader("📈 Attribution Trends Over Time")
+    
+    attribution_data = attribution_summary.get('attribution_data', [])
+    if attribution_data:
+        # Group by sector for time series
+        df = pd.DataFrame(attribution_data)
+        
+        if not df.empty and 'sector' in df.columns:
+            selected_sectors = st.multiselect(
+                "Select sectors to display:",
+                options=df['sector'].unique(),
+                default=df['sector'].unique()[:3],  # Default to first 3 sectors
+                help="Choose which sectors to show in the time series chart"
+            )
+            
+            if selected_sectors:
+                filtered_df = df[df['sector'].isin(selected_sectors)]
+                
+                # Create individual time series for each sector
+                fig = go.Figure()
+                
+                from config.sectors import get_sector_color
+                
+                for sector in selected_sectors:
+                    sector_data = filtered_df[filtered_df['sector'] == sector]
+                    sector_data = sector_data.sort_values('date')
+                    
+                    fig.add_trace(go.Scatter(
+                        x=pd.to_datetime(sector_data['date']),
+                        y=sector_data['total_effect'],
+                        mode='lines+markers',
+                        name=sector,
+                        line=dict(color=get_sector_color(sector), width=2),
+                        hovertemplate=f'<b>{sector}</b><br>Date: %{{x}}<br>Attribution: %{{y:.3%}}<extra></extra>'
+                    ))
+                
+                fig.update_layout(
+                    title="Sector Attribution Effects Over Time",
+                    xaxis_title="Date",
+                    yaxis_title="Attribution Effect",
+                    height=400,
+                    legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01),
+                    hovermode='x unified'
+                )
+                
+                st.plotly_chart(fig, use_container_width=True)
+    
+    # Export and download section
+    st.subheader("💾 Export Attribution Results")
+    
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        if sector_summary:
+            # Prepare CSV data
+            csv_data = create_sector_attribution_table(sector_summary).to_csv(index=False)
+            st.download_button(
+                label="📄 Download Attribution Table (CSV)",
+                data=csv_data,
+                file_name=f"{strategy_name}_sector_attribution.csv",
+                mime="text/csv"
+            )
+    
+    with col2:
+        if attribution_summary:
+            # Prepare JSON summary
+            import json
+            json_data = json.dumps(attribution_summary, indent=2, default=str)
+            st.download_button(
+                label="📋 Download Summary (JSON)",
+                data=json_data,
+                file_name=f"{strategy_name}_attribution_summary.json",
+                mime="application/json"
+            )
+    
+    with col3:
+        # Option to view raw data
+        if st.button("👁️ View Raw Attribution Data"):
+            with st.expander("Raw Attribution Data", expanded=True):
+                if attribution_results:
+                    raw_data = []
+                    for result in attribution_results[:100]:  # Limit display to first 100 records
+                        raw_data.append({
+                            'Date': result.date.strftime('%Y-%m-%d'),
+                            'Sector': result.sector,
+                            'Portfolio Weight': f"{result.portfolio_weight:.3%}",
+                            'Benchmark Weight': f"{result.benchmark_weight:.3%}",
+                            'Allocation Effect': f"{result.allocation_effect:.4%}",
+                            'Selection Effect': f"{result.selection_effect:.4%}",
+                            'Interaction Effect': f"{result.interaction_effect:.4%}",
+                            'Total Effect': f"{result.total_effect:.4%}"
+                        })
+                    
+                    raw_df = pd.DataFrame(raw_data)
+                    st.dataframe(raw_df, use_container_width=True, height=400)
 
 
 def create_attribution_summary_chart(attribution_data: Dict) -> go.Figure:

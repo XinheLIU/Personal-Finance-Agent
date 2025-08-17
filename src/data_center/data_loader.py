@@ -58,8 +58,8 @@ class DataLoader:
         if hasattr(df.index, 'tz') and df.index.tz is not None:
             df.index = df.index.tz_localize(None)
         
-        # Sort by date
-        df = df.sort_index()
+        # Sort by date and drop duplicate index values which can cause errors later
+        df = df[~df.index.duplicated(keep='first')].sort_index()
         
         return df
     
@@ -126,6 +126,8 @@ class DataLoader:
             
             # Convert to timezone-naive for consistent comparisons throughout the system
             df.index = df.index.tz_localize(None)
+            # Drop duplicate indices to avoid backtrader feed errors
+            df = df[~df.index.duplicated(keep='first')]
             
             # Validate and clean data
             df = self._validate_dataframe(df, asset_name)
@@ -210,6 +212,8 @@ class DataLoader:
                     
                     # Convert to timezone-naive for consistent processing throughout the system
                     df.index = df.index.tz_localize(None)
+                    # Drop duplicate indices
+                    df = df[~df.index.duplicated(keep='first')]
                 else:
                     LOG.warning(f"No date column found for {asset_name}. Available columns: {list(df.columns)}")
                     continue

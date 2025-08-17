@@ -5,6 +5,82 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.7] - 2025-08-15
+
+### Added
+
+- **🎯 Standalone Performance Attribution System**: Complete redesign of attribution analysis with independent module architecture
+  - **New Attribution Tab**: Dedicated "📊 Attribution" tab in Streamlit interface with comprehensive controls
+  - **Decoupled from Backtesting**: Attribution analysis now operates independently and can analyze any strategy without requiring a full backtest
+  - **Flexible Period Selection**: Choose from presets (Last Week, Month, 3 Months, etc.) or custom date ranges for analysis
+  - **Dual Attribution Methods**: Both asset-level and sector-based attribution analysis available
+
+- **🏗️ Professional Sector-Based Attribution**: Implemented institutional-grade Brinson attribution methodology
+  - **Allocation Effect**: Impact of sector over/under-weighting vs benchmark (Portfolio Weight - Benchmark Weight) × Benchmark Return
+  - **Selection Effect**: Impact of asset selection within sectors = Benchmark Weight × (Portfolio Return - Benchmark Return)
+  - **Interaction Effect**: Combined allocation and selection impact = (Portfolio Weight - Benchmark Weight) × (Portfolio Return - Benchmark Return)
+  - **9 Professional Sectors**: Technology, Finance, Government Bonds, Commodities, International Equity, Cash Equivalents, China Equity, US Equity, Real Estate
+
+- **📊 Enhanced Attribution Visualizations**: Professional charts and tables similar to institutional attribution reports
+  - **Attribution Breakdown Table**: Styled like institutional reports with Portfolio/Index weights, returns, and attribution effects
+  - **Waterfall Charts**: Visual decomposition of attribution effects contributing to total excess return
+  - **Sector Allocation Comparison**: Portfolio vs benchmark sector weight visualization
+  - **Time Series Attribution**: Interactive charts showing attribution trends over time with sector selection
+  - **Top Contributors Analysis**: Horizontal bar charts highlighting best/worst performing sectors
+
+- **🔧 Advanced Attribution Features**:
+  - **Strategy Selection**: Choose any available strategy for attribution analysis
+  - **Benchmark Options**: Compare against Balanced Portfolio, Equal Weight, or 60/40 benchmarks
+  - **Attribution Frequency**: Daily, weekly, or monthly attribution calculations
+  - **Export Capabilities**: CSV, JSON, and Excel export with professional formatting
+  - **Interactive Analysis**: Multi-select sectors, view raw data, download results
+
+### Enhanced
+
+- **📈 Attribution Data Pipeline**: Enhanced data loading and processing for attribution analysis
+  - **Smart Data Loading**: Automatic loading from rebalancing logs or strategy configurations
+  - **Portfolio Performance Calculation**: Real-time calculation of portfolio returns from weights and asset returns
+  - **Date Alignment**: Robust handling of different data frequencies and time zones
+  - **Error Recovery**: Graceful fallbacks when attribution data is incomplete
+
+- **🎨 Professional UI/UX**: Institutional-grade interface design
+  - **Navigation**: Added Attribution as 5th main tab in Streamlit interface
+  - **Three-Column Layout**: Strategy selection, period selection, and analysis options
+  - **Interactive Controls**: Period presets, custom date ranges, attribution method selection
+  - **Professional Styling**: Color-coded attribution effects, formatted tables, institutional metrics display
+
+### Files Added
+
+- **`config/sectors.py`**: Professional sector classification with asset-to-sector mapping following GICS-like standards
+- **`src/performance/sector_attribution.py`**: Comprehensive sector-based attribution engine implementing Brinson methodology
+- **Enhanced `src/visualization/charts.py`**: New attribution visualization functions including waterfall charts, sector comparisons, and time series analysis
+- **Enhanced `src/streamlit_app.py`**: New attribution page with comprehensive period selection and analysis controls
+
+### Technical Implementation
+
+- **Sector Configuration**: 9 professional sectors with color coding and benchmark weights
+- **Attribution Algorithms**: Professional Brinson model implementation with compound return handling
+- **Data Processing**: Robust data alignment, error handling, and performance calculation
+- **Visualization Engine**: Plotly-based interactive charts with professional styling
+- **Export System**: Multi-format export capabilities with institutional-grade formatting
+
+### Breaking Changes
+
+- **Import Structure**: New sector configuration imports from `config.sectors`
+- **Attribution Interface**: Previous attribution functionality replaced with standalone system
+- **Navigation**: Added new Attribution tab changes navigation structure
+
+### Usage Examples
+
+```bash
+# Access via new Attribution tab in Streamlit GUI
+streamlit run src/streamlit_app.py
+
+# Select strategy, period, and attribution method
+# Generate professional attribution reports
+# Export results in multiple formats
+```
+
 ## Bug Fix - 2025-08-15
 
 ### Fixed

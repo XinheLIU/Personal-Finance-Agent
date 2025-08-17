@@ -243,12 +243,62 @@ def get_current_yield(market_data, current_date):
 
 # New helpers that operate on processed, merged strategy data only
 
+def _ensure_datetime_index(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Ensure the DataFrame index is a timezone-naive DatetimeIndex, sorted ascending.
+    Handles cases where the index is string-typed.
+    """
+    if df is None or df.empty:
+        return df
+    try:
+        if not isinstance(df.index, pd.DatetimeIndex):
+            # Attempt vectorized parse
+            parsed_index = pd.to_datetime(df.index, errors='coerce')
+            nat_count = int(parsed_index.isna().sum())
+            if nat_count > 0:
+                # Fallback: robust element-wise parsing to handle mixed formats reliably
+                parsed_list = []
+                for val in df.index.tolist():
+                    try:
+                        ts = pd.to_datetime(val, errors='raise')
+                    except Exception:
+                        try:
+                            # Try stripping time part if present
+                            sval = str(val)
+                            if ' ' in sval:
+                                ts = pd.to_datetime(sval.split(' ')[0], errors='raise')
+                            else:
+                                ts = pd.NaT
+                        except Exception:
+                            ts = pd.NaT
+                    parsed_list.append(ts)
+                parsed_index = pd.DatetimeIndex(parsed_list)
+                nat_count = int(parsed_index.isna().sum())
+            # If still NaTs exist, drop only clearly invalid leading/trailing rows but keep majority
+            if nat_count > 0:
+                LOG.warning(f"Processed data index contained {nat_count} non-parsable dates; dropping only those rows")
+                valid_mask = ~parsed_index.isna()
+                df = df.loc[valid_mask].copy()
+                parsed_index = parsed_index[valid_mask]
+            df.index = parsed_index
+        # Make timezone-naive if needed
+        if hasattr(df.index, 'tz') and df.index.tz is not None:
+            df.index = df.index.tz_localize(None)
+        # Ensure sorted index
+        if not df.index.is_monotonic_increasing:
+            df = df.sort_index()
+    except Exception as e:
+        LOG.warning(f"Failed to coerce processed data index to datetime: {e}")
+    return df
+
+
 def pe_percentile_from_processed(processed_df: pd.DataFrame, asset_name: str, current_date, years: int = 10):
     """
     Calculate P/E percentile using processed strategy DataFrame.
     Expects a column named f"{asset_name}_pe".
     Returns (percentile: float, details: dict)
     """
+    processed_df = _ensure_datetime_index(processed_df)
     pe_col = f"{asset_name}_pe"
     if processed_df is None or processed_df.empty or pe_col not in processed_df.columns:
         error_msg = f"Processed data missing column '{pe_col}'. Ensure data processing includes P/E for {asset_name}."
@@ -313,6 +363,7 @@ def yield_percentile_from_processed(processed_df: pd.DataFrame, current_date, ye
     """
     Calculate US10Y yield percentile from processed data (expects 'US10Y_yield').
     """
+    processed_df = _ensure_datetime_index(processed_df)
     col = 'US10Y_yield'
     if processed_df is None or processed_df.empty or col not in processed_df.columns:
         error_msg = "Processed data missing 'US10Y_yield'. Ensure data processing includes yield data."
@@ -345,6 +396,7 @@ def current_yield_from_processed(processed_df: pd.DataFrame, current_date) -> fl
     """
     Get latest US10Y yield from processed data; returns 4.0 on failure.
     """
+    processed_df = _ensure_datetime_index(processed_df)
     col = 'US10Y_yield'
     try:
         if processed_df is None or processed_df.empty or col not in processed_df.columns:
