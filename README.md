@@ -10,6 +10,7 @@ This project is a comprehensive, modular quantitative investment analysis platfo
 - **Realistic Backtesting**: Powered by `backtrader`, the engine simulates execution lag, commissions, and slippage.
 - **In-depth Performance Analysis**: Generates detailed reports and charts covering a wide range of performance and risk metrics.
 - **Professional Attribution Analysis**: Institutional-grade performance attribution with sector-based Brinson methodology, decomposing returns into allocation, selection, and interaction effects.
+- **Professional Accounting Module**: Complete CSV-based accounting system with transaction management, income statement generation, and tax calculations supporting Chinese language and CNY currency.
 - **Dual Interface**: Can be operated via a command-line interface (CLI) for automation or a Streamlit-based graphical user interface (GUI) for interactive analysis.
 
 ## Modules
@@ -22,6 +23,7 @@ The system is organized into the following core modules, each corresponding to a
 - **`src/backtesting` (Backtesting Platform)**: Implemented using the `backtrader` library within the `EnhancedBacktestEngine`. It allows strategies to be tested on historical data, modeling execution lag, commissions, and slippage to simulate performance realistically.
 - **`src/performance` (Performance Analysis)**: The `PerformanceAnalyzer` evaluates strategy effectiveness, calculating key metrics (Sharpe ratio, max drawdown) and generating reports and charts. Includes professional attribution analysis with `PerformanceAttributor` and `SectorAttributor` for institutional-grade performance decomposition.
 - **`src/data_center` (Data Center)**: Manages all system data. `download.py` fetches raw market data using `akshare` and `yfinance`. `data_loader.py` provides clean, date-indexed DataFrames to other modules. `data_processor.py` generates derived datasets for strategies.
+- **`src/accounting` (Accounting Module)**: Professional accounting system with transaction/asset data models, CSV I/O operations, and income statement generation with Chinese language support and CNY tax calculations.
 
 ## Getting Started
 
@@ -70,7 +72,7 @@ For a more interactive experience, you can launch the Streamlit GUI.
 streamlit run src/streamlit_app.py
 ```
 
-From the GUI, you can run backtests, view performance dashboards, analyze results interactively, and perform detailed attribution analysis using the dedicated Attribution tab.
+From the GUI, you can run backtests, view performance dashboards, analyze results interactively, perform detailed attribution analysis, and manage accounting data with income statement generation using the dedicated tabs.
 
 #### 4. Performance Attribution Analysis
 
@@ -92,6 +94,52 @@ streamlit run src/streamlit_app.py
 - **Allocation Effect**: Impact of sector over/under-weighting vs benchmark
 - **Selection Effect**: Impact of asset selection within sectors
 - **Interaction Effect**: Combined allocation and selection impact
+
+#### 5. Professional Accounting Module
+
+The system includes a complete accounting module for transaction management and financial statement generation with Chinese language support:
+
+```bash
+# Launch GUI and navigate to Accounting tab
+streamlit run src/streamlit_app.py
+```
+
+**Accounting Features:**
+- **Transaction Management**: CSV-based transaction import with comprehensive validation
+- **Income Statement Generation**: Professional monthly and year-to-date statements
+- **Chinese Language Support**: Full UTF-8 support for Chinese transaction descriptions and categories
+- **Tax Calculations**: Progressive tax brackets (0%, 10%, 20%) for CNY income
+- **Category Taxonomy**: Predefined expense and revenue categories following accounting standards
+- **Data Validation**: Comprehensive validation with detailed error reporting
+
+**CLI Commands:**
+```bash
+# Check accounting data status
+python -m src.cli accounting-status
+
+# Generate monthly income statement
+python -m src.cli generate-income-statement 2025-01
+
+# Generate year-to-date statement with CSV export
+python -m src.cli generate-income-statement YTD --export-csv
+```
+
+**Transaction Data Format:**
+Create a CSV file at `data/accounting/transactions.csv` with the following columns:
+- `date`: YYYY-MM-DD format
+- `description`: Transaction description (Chinese/English supported)
+- `amount`: Decimal amount (negative for expenses, positive for income)
+- `category`: Must match predefined categories (餐饮, 房租, 工资收入, etc.)
+- `account_name`: Account identifier
+- `account_type`: Cash, Credit, or Debit
+- `notes`: Optional additional information
+
+**Income Statement Features:**
+- **Revenue Categorization**: Service revenue vs other income
+- **Expense Classification**: Fixed costs vs variable costs
+- **Tax Calculations**: Progressive brackets based on CNY income levels
+- **Percentage Analysis**: All items shown as percentage of gross revenue
+- **Export Options**: Professional CSV export with detailed breakdown
 
 ## Configuration
 

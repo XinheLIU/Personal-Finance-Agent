@@ -42,6 +42,15 @@ from src.visualization.charts import (
     create_metrics_dashboard,
     display_attribution_analysis
 )
+from src.accounting import (
+    load_transactions_csv,
+    generate_monthly_income_statement,
+    generate_ytd_income_statement,
+    print_income_statement,
+    save_income_statement_csv,
+    EXPENSE_CATEGORIES,
+    REVENUE_CATEGORIES
+)
 
 # Cache for strategy weights
 if 'target_weights_cache' not in st.session_state:
@@ -558,9 +567,9 @@ def main():
     st.title("💰 Personal Finance Agent")
     st.markdown("Professional quantitative investment management system")
     
-    # Sidebar navigation - Updated with Attribution tab
+    # Sidebar navigation - Updated with Attribution and Accounting tabs
     st.sidebar.title("Navigation")
-    page_names = ["🎯 Backtest", "📊 Attribution", "💼 Portfolio", "📈 Data Explorer", "⚙️ System"]
+    page_names = ["🎯 Backtest", "📊 Attribution", "💼 Portfolio", "📈 Data Explorer", "💰 Accounting", "⚙️ System"]
     page = st.sidebar.radio("Select Page:", page_names, index=0)
     
     # Display selected page
@@ -572,6 +581,8 @@ def main():
         show_portfolio_page()
     elif page == "📈 Data Explorer":
         show_data_explorer_page()
+    elif page == "💰 Accounting":
+        show_accounting_page()
     elif page == "⚙️ System":
         show_system_page()
 
@@ -1565,6 +1576,222 @@ def show_system_page():
                         st.error(f"Cleanup failed: {e}")
         
         st.caption("Backtest parameters can be configured in the Backtest tab. This dashboard focuses on system health and operations.")
+
+def show_accounting_page():
+    """Display the Professional Accounting Module interface."""
+    st.header("💰 Professional Accounting")
+    st.markdown("CSV-based transaction management and income statement generation")
+    
+    # Data Status Section
+    st.subheader("📊 Data Status")
+    
+    transactions_file = "data/accounting/transactions.csv"
+    assets_file = "data/accounting/assets.csv"
+    statements_dir = "data/accounting/statements"
+    
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        if os.path.exists(transactions_file):
+            transactions, errors = load_transactions_csv(transactions_file)
+            if errors:
+                st.error(f"❌ Transaction errors: {len(errors)}")
+                with st.expander("View errors"):
+                    for error in errors[:10]:  # Show first 10 errors
+                        st.text(error)
+            else:
+                st.success(f"✅ Transactions: {len(transactions)} records")
+                if transactions:
+                    dates = [t.date for t in transactions]
+                    date_range = f"{min(dates).strftime('%Y-%m-%d')} to {max(dates).strftime('%Y-%m-%d')}"
+                    st.info(f"📅 {date_range}")
+        else:
+            st.warning("❌ No transactions.csv found")
+    
+    with col2:
+        if os.path.exists(assets_file):
+            st.success("✅ Assets file available")
+        else:
+            st.info("ℹ️ Assets file not found (optional)")
+    
+    with col3:
+        if os.path.exists(statements_dir):
+            statements = [f for f in os.listdir(statements_dir) if f.endswith('.csv')]
+            st.success(f"✅ {len(statements)} statements generated")
+        else:
+            st.info("ℹ️ No statements directory")
+    
+    # File Upload Section
+    st.subheader("📁 Data Management")
+    
+    tab1, tab2 = st.tabs(["Upload Transactions", "Create Sample Data"])
+    
+    with tab1:
+        st.markdown("Upload a CSV file with transaction data:")
+        uploaded_file = st.file_uploader(
+            "Choose transactions CSV file", 
+            type=['csv'],
+            help="CSV must contain columns: date, description, amount, category, account_name, account_type"
+        )
+        
+        if uploaded_file:
+            if st.button("💾 Save Transactions"):
+                try:
+                    # Save uploaded file to transactions.csv
+                    os.makedirs("data/accounting", exist_ok=True)
+                    with open(transactions_file, 'wb') as f:
+                        f.write(uploaded_file.getvalue())
+                    st.success("✅ Transactions saved successfully!")
+                    st.experimental_rerun()
+                except Exception as e:
+                    st.error(f"❌ Error saving file: {e}")
+    
+    with tab2:
+        st.markdown("Create sample transaction data for testing:")
+        if st.button("📝 Create Sample Data"):
+            sample_data = """date,description,amount,category,account_name,account_type,notes
+2025-01-15,餐饮,-68.50,餐饮,招商银行卡,Debit,晚饭
+2025-01-10,工资收入,8000.00,工资收入,招商银行卡,Debit,月薪
+2025-01-05,房租,-2500.00,房租,招商银行卡,Debit,1月房租
+2025-01-03,水电费,-150.00,水电费,招商银行卡,Debit,电费
+2025-01-20,超市购物,-280.30,日用购物,招商银行卡,Debit,日用品
+2025-01-25,交通费,-45.00,交通,招商银行卡,Debit,地铁卡充值"""
+            
+            try:
+                os.makedirs("data/accounting", exist_ok=True)
+                with open(transactions_file, 'w', encoding='utf-8') as f:
+                    f.write(sample_data)
+                st.success("✅ Sample data created successfully!")
+                st.experimental_rerun()
+            except Exception as e:
+                st.error(f"❌ Error creating sample data: {e}")
+    
+    # Income Statement Generation Section
+    if os.path.exists(transactions_file):
+        st.subheader("📈 Income Statement Generation")
+        
+        col1, col2, col3 = st.columns([2, 1, 1])
+        
+        with col1:
+            # Period selection
+            statement_type = st.selectbox(
+                "Statement Type:",
+                ["Monthly", "Year-to-Date"],
+                help="Generate monthly statement or YTD summary"
+            )
+            
+            if statement_type == "Monthly":
+                year = st.number_input("Year:", value=2025, min_value=2020, max_value=2030)
+                month = st.number_input("Month:", value=1, min_value=1, max_value=12)
+                period_str = f"{year}-{month:02d}"
+            else:
+                year = st.number_input("Year:", value=2025, min_value=2020, max_value=2030, key="ytd_year")
+                period_str = "YTD"
+        
+        with col2:
+            export_csv = st.checkbox("Export to CSV", value=True)
+        
+        with col3:
+            if st.button("🚀 Generate Statement", type="primary"):
+                try:
+                    transactions, errors = load_transactions_csv(transactions_file)
+                    
+                    if errors:
+                        st.error("❌ Cannot generate statement due to transaction errors")
+                    else:
+                        if statement_type == "Monthly":
+                            statement_data = generate_monthly_income_statement(transactions, month, year)
+                        else:
+                            statement_data = generate_ytd_income_statement(transactions, year)
+                        
+                        # Display statement
+                        st.subheader(f"📊 Income Statement - {statement_data['period']}")
+                        
+                        # Revenue section
+                        revenue = statement_data['revenue']
+                        st.markdown("**REVENUE:**")
+                        col_r1, col_r2, col_r3 = st.columns(3)
+                        with col_r1:
+                            st.metric("Service Revenue", f"¥{revenue['service_revenue']:,.2f}", 
+                                     f"{revenue['service_revenue_pct']:.1f}%")
+                        with col_r2:
+                            st.metric("Other Income", f"¥{revenue['other_income']:,.2f}",
+                                     f"{revenue['other_income_pct']:.1f}%")
+                        with col_r3:
+                            st.metric("Gross Revenue", f"¥{revenue['gross_revenue']:,.2f}", "100.0%")
+                        
+                        # Expenses section
+                        expenses = statement_data['expenses']
+                        st.markdown("**EXPENSES:**")
+                        col_e1, col_e2, col_e3, col_e4 = st.columns(4)
+                        with col_e1:
+                            st.metric("Fixed Costs", f"¥{expenses['fixed_costs']:,.2f}",
+                                     f"{expenses['fixed_costs_pct']:.1f}%")
+                        with col_e2:
+                            st.metric("Variable Costs", f"¥{expenses['variable_costs']:,.2f}",
+                                     f"{expenses['variable_costs_pct']:.1f}%")
+                        with col_e3:
+                            st.metric("Tax Expense", f"¥{expenses['tax_expense']:,.2f}",
+                                     f"{expenses['tax_expense_pct']:.1f}%")
+                        with col_e4:
+                            st.metric("Total Expenses", f"¥{expenses['total_expenses']:,.2f}",
+                                     f"{expenses['total_expenses_pct']:.1f}%")
+                        
+                        # Net income
+                        net_income = statement_data['net_operating_income']
+                        net_margin = statement_data['net_margin_pct']
+                        st.markdown("**NET OPERATING INCOME:**")
+                        st.metric("Net Income", f"¥{net_income:,.2f}", f"{net_margin:.1f}%")
+                        
+                        # Expense breakdown table
+                        if statement_data['expense_breakdown']:
+                            st.subheader("📋 Expense Breakdown")
+                            breakdown_data = []
+                            for category, details in statement_data['expense_breakdown'].items():
+                                breakdown_data.append({
+                                    'Category': category,
+                                    'Amount': f"¥{details['amount']:,.2f}",
+                                    'Percentage': f"{details['percentage']:.1f}%",
+                                    'Type': details['type'].title()
+                                })
+                            st.dataframe(pd.DataFrame(breakdown_data), use_container_width=True)
+                        
+                        # Export to CSV
+                        if export_csv:
+                            os.makedirs("data/accounting/statements", exist_ok=True)
+                            if period_str == "YTD":
+                                output_file = f"data/accounting/statements/income_statement_YTD_{year}.csv"
+                            else:
+                                output_file = f"data/accounting/statements/income_statement_{period_str}.csv"
+                            
+                            export_errors = save_income_statement_csv(statement_data, output_file)
+                            if export_errors:
+                                st.error(f"❌ CSV export failed: {', '.join(export_errors)}")
+                            else:
+                                st.success(f"✅ Statement saved to: {output_file}")
+                        
+                except Exception as e:
+                    st.error(f"❌ Error generating statement: {e}")
+    
+    # Category Reference
+    st.subheader("📚 Category Reference")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("**Expense Categories:**")
+        expense_data = []
+        for group, categories in EXPENSE_CATEGORIES.items():
+            for category in categories:
+                expense_data.append({'Group': group.replace('_', ' ').title(), 'Category': category})
+        st.dataframe(pd.DataFrame(expense_data), use_container_width=True)
+    
+    with col2:
+        st.markdown("**Revenue Categories:**")
+        revenue_data = []
+        for category in REVENUE_CATEGORIES:
+            revenue_data.append({'Category': category, 'Type': 'Revenue'})
+        st.dataframe(pd.DataFrame(revenue_data), use_container_width=True)
 
 if __name__ == "__main__":
     main()

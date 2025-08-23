@@ -13,6 +13,17 @@ from src.backtesting.runner import run_backtest
 from src.data_center.download import main as download_data
 from src.strategies.classic import get_target_weights_and_metrics_standalone
 
+# Import accounting module
+from src.accounting import (
+    load_transactions_csv, 
+    generate_monthly_income_statement,
+    generate_ytd_income_statement,
+    print_income_statement,
+    save_income_statement_csv
+)
+import os
+from datetime import datetime
+
 def list_strategies():
     """List all available strategies"""
     strategies = strategy_registry.list_strategies()
@@ -174,6 +185,145 @@ def run_attribution_analysis(strategy_name: str,
         return False
 
 
+def generate_income_statement_cli(period: str, export_csv: bool = False) -> bool:
+    """Generate income statement for specified period"""
+    try:
+        # Load transactions from data/accounting/transactions.csv
+        transactions_file = "data/accounting/transactions.csv"
+        
+        if not os.path.exists(transactions_file):
+            print(f"❌ Transaction file not found: {transactions_file}")
+            print("Please create the file with transaction data first.")
+            return False
+        
+        # Load transactions
+        transactions, errors = load_transactions_csv(transactions_file)
+        
+        if errors:
+            print(f"❌ Errors loading transactions:")
+            for error in errors:
+                print(f"   {error}")
+            return False
+        
+        if not transactions:
+            print("❌ No transactions found in file")
+            return False
+        
+        print(f"✅ Loaded {len(transactions)} transactions")
+        
+        # Parse period (YYYY-MM format)
+        try:
+            if period.upper() == "YTD":
+                year = datetime.now().year
+                statement = generate_ytd_income_statement(transactions, year)
+                period_desc = f"YTD {year}"
+            else:
+                parts = period.split("-")
+                if len(parts) != 2:
+                    raise ValueError("Period must be in YYYY-MM format or 'YTD'")
+                year = int(parts[0])
+                month = int(parts[1])
+                statement = generate_monthly_income_statement(transactions, month, year)
+                period_desc = f"{year}-{month:02d}"
+        except ValueError as e:
+            print(f"❌ Invalid period format: {e}")
+            print("Use YYYY-MM format (e.g., 2025-01) or 'YTD'")
+            return False
+        
+        # Display income statement
+        print_income_statement(statement)
+        
+        # Export to CSV if requested
+        if export_csv:
+            output_dir = "data/accounting/statements"
+            os.makedirs(output_dir, exist_ok=True)
+            
+            if period.upper() == "YTD":
+                output_file = f"{output_dir}/income_statement_YTD_{year}.csv"
+            else:
+                output_file = f"{output_dir}/income_statement_{period}.csv"
+            
+            errors = save_income_statement_csv(statement, output_file)
+            if errors:
+                print(f"❌ Errors saving CSV:")
+                for error in errors:
+                    print(f"   {error}")
+            else:
+                print(f"✅ Income statement saved to: {output_file}")
+        
+        return True
+        
+    except Exception as e:
+        print(f"❌ Error generating income statement: {e}")
+        LOG.error(f"Income statement generation failed: {e}")
+        return False
+
+
+def accounting_status() -> bool:
+    """Show accounting data status"""
+    try:
+        transactions_file = "data/accounting/transactions.csv"
+        assets_file = "data/accounting/assets.csv"
+        statements_dir = "data/accounting/statements"
+        
+        print("\n📊 Accounting Module Status")
+        print("=" * 40)
+        
+        # Check transactions file
+        if os.path.exists(transactions_file):
+            transactions, errors = load_transactions_csv(transactions_file)
+            if errors:
+                print(f"❌ Transactions file has errors: {len(errors)}")
+                for error in errors[:3]:  # Show first 3 errors
+                    print(f"   {error}")
+                if len(errors) > 3:
+                    print(f"   ... and {len(errors) - 3} more errors")
+            else:
+                print(f"✅ Transactions: {len(transactions)} records")
+                
+                # Show date range
+                if transactions:
+                    dates = [t.date for t in transactions]
+                    min_date = min(dates).strftime("%Y-%m-%d")
+                    max_date = max(dates).strftime("%Y-%m-%d")
+                    print(f"   Date range: {min_date} to {max_date}")
+                    
+                    # Show categories
+                    categories = set(t.category for t in transactions)
+                    print(f"   Categories: {len(categories)} unique")
+        else:
+            print(f"❌ Transactions file not found: {transactions_file}")
+            print("   Create this file to start using accounting features")
+        
+        # Check assets file (optional)
+        if os.path.exists(assets_file):
+            print(f"✅ Assets file found: {assets_file}")
+        else:
+            print(f"ℹ️  Assets file not found: {assets_file} (optional)")
+        
+        # Check statements directory
+        if os.path.exists(statements_dir):
+            statements = [f for f in os.listdir(statements_dir) if f.endswith('.csv')]
+            if statements:
+                print(f"✅ Generated statements: {len(statements)}")
+                for stmt in sorted(statements)[-3:]:  # Show last 3 statements
+                    print(f"   {stmt}")
+                if len(statements) > 3:
+                    print(f"   ... and {len(statements) - 3} more")
+            else:
+                print(f"ℹ️  No statements generated yet in: {statements_dir}")
+        else:
+            print(f"ℹ️  Statements directory will be created when needed: {statements_dir}")
+        
+        print()
+        return True
+        
+    except Exception as e:
+        print(f"❌ Error checking accounting status: {e}")
+        LOG.error(f"Accounting status check failed: {e}")
+        return False
+
+
 def export_attribution_data(strategy_name: str, output_dir: str = "analytics/attribution"):
     """Export attribution data for a strategy to CSV/Excel files"""
     print(f"\n📤 Exporting attribution data for {strategy_name}")
@@ -250,6 +400,14 @@ def main():
     # Show weights
     weights_parser = subparsers.add_parser('weights', help='Show current target weights')
     
+    # Accounting commands
+    accounting_status_parser = subparsers.add_parser('accounting-status', help='Show accounting data status')
+    
+    generate_statement_parser = subparsers.add_parser('generate-income-statement', help='Generate income statement')
+    generate_statement_parser.add_argument('period', help='Period in YYYY-MM format or "YTD"')
+    generate_statement_parser.add_argument('--export-csv', action='store_true',
+                                          help='Export statement to CSV file')
+    
     # Parse arguments
     args = parser.parse_args()
     
@@ -297,6 +455,12 @@ def main():
         
         elif args.command == 'weights':
             show_portfolio_weights()
+        
+        elif args.command == 'accounting-status':
+            accounting_status()
+        
+        elif args.command == 'generate-income-statement':
+            generate_income_statement_cli(args.period, export_csv=args.export_csv)
     
     except KeyboardInterrupt:
         print("\nOperation cancelled by user")
