@@ -18,16 +18,20 @@ flowchart TB
         A["src/performance<br/>(Performance Analysis)"]
         C["src/trading<br/>(Trading Module)"]
         B["src/management<br/>(System Coordinator)"]
+        G["src/accounting<br/>(Accounting Module)"]
     end
 
     CLI --> B
     GUI --> B
+    CLI --> G
+    GUI --> G
     B --> E
     B --> A
     E --> D
     F --> D
     F --> E
     A --> GUI
+    G --> GUI
 ```
 
 - **`src/management` (System Coordinator)**: Oversees the entire system, coordinating all other modules via the `SystemCoordinator` class. It orchestrates backtests, manages configurations, and provides a central point for system health checks.
@@ -36,6 +40,7 @@ flowchart TB
 - **`src/backtesting` (Backtesting Platform)**: Implemented using the `backtrader` library within the `EnhancedBacktestEngine`. It allows strategies to be tested on historical data, modeling execution lag, commissions, and slippage to simulate performance realistically.
 - **`src/performance` (Performance Analysis)**: The `PerformanceAnalyzer` evaluates strategy effectiveness, calculating key metrics (Sharpe ratio, max drawdown) and generating reports and charts with `matplotlib`.
 - **`src/data_center` (Data Center)**: Manages all system data. `download.py` fetches raw market data using `akshare` and `yfinance`. `data_loader.py` provides clean, date-indexed DataFrames to other modules. `data_processor.py` generates derived datasets for strategies.
+- **`src/accounting` (Accounting Module)**: Professional accounting system with dual-currency support. Processes monthly transactions, assets, and exchange rates to generate balance sheets, income statements, and cash flow statements. Features simplified data models for streamlined monthly workflow and comprehensive validation.
 
 #### Implementation Samples (by module)
 
@@ -148,6 +153,30 @@ buy_order = sim_executor.create_market_order(
 sim_executor.submit_order(buy_order)
 ```
 
+- **Accounting Module (Monthly Workflow)**: The accounting module processes monthly data using a streamlined 3-input → 3-output workflow.
+
+```python
+# From: src/accounting/currency_converter.py and CLI workflow
+from src.accounting.io import load_monthly_assets_csv, load_exchange_rate_from_file
+from src.accounting.currency_converter import CurrencyConverter
+from src.accounting.balance_sheet import BalanceSheetGenerator
+
+# Load monthly inputs
+assets, errors = load_monthly_assets_csv("assets_202507.csv", datetime(2025, 7, 31))
+exchange_rate, errors = load_exchange_rate_from_file("usdcny_202507.txt", datetime(2025, 7, 31))
+
+# Create currency converter for dual-currency processing
+converter = CurrencyConverter(exchange_rate)
+
+# Generate balance sheet with multi-user equity
+bs_generator = BalanceSheetGenerator(converter)
+owner_equity = bs_generator.extract_owner_equity_from_assets(assets)
+balance_sheet = bs_generator.generate_balance_sheet(assets, owner_equity, date(2025, 7, 31))
+
+# Balance sheet contains both CNY and USD values
+# Example output: Total Assets: ¥228,000.00 ($31,710.71) at 1 USD = 7.19 CNY
+```
+
 ### Key Workflow
 
 1.  **Data Download**: The user runs `src/data_center/download.py` (or it's triggered automatically) to fetch the latest market data from sources like `yfinance` and `akshare`. Data is saved to `data/raw/`.
@@ -157,3 +186,27 @@ sim_executor.submit_order(buy_order)
 5.  **Execution Simulation**: The `EnhancedBacktestEngine`, using `backtrader`, simulates executing trades to match the target weights, applying commission and slippage costs.
 6.  **Performance Analysis**: After the backtest completes, the `PerformanceAnalyzer` is used to compute metrics and generate charts and reports, which are saved in `analytics/performance/`.
 7.  **Review**: The user reviews the generated reports and charts to evaluate the strategy's performance.
+
+### Monthly Accounting Workflow
+
+1.  **Input Preparation**: The user prepares three monthly input files:
+    - **Assets CSV**: Account balances in simplified format (`Account, CNY, USD, Asset Class`)
+    - **Exchange Rate**: USD/CNY conversion rate in a text file (e.g., `7.19`)
+    - **Transactions CSV**: Monthly transaction data (format TBD when sample is corrected)
+
+2.  **Workflow Execution**: Via CLI (`python -m src.cli process-monthly-accounting 2025 07`) or GUI ("📊 Monthly Workflow" tab), the system:
+    - Loads and validates all input files
+    - Creates a `CurrencyConverter` for dual-currency processing
+    - Generates three professional financial statements
+
+3.  **Financial Statement Generation**:
+    - **Balance Sheet**: Multi-user owner equity with dual-currency display
+    - **Income Statement**: Revenue/expense categorization with tax calculations
+    - **Cash Flow Statement**: Operating/investing/financing activities analysis
+
+4.  **Output**: Three CSV files are generated in `data/accounting/monthly/YYYY-MM/output/`:
+    - `balance_sheet_YYYYMM.csv` - Professional balance sheet format
+    - `income_statement_YYYYMM.csv` - Comprehensive income analysis
+    - `cash_flow_YYYYMM.csv` - Cash flow from all activities
+
+5.  **Review & Analysis**: Users can download statements, review dual-currency metrics, and analyze multi-user equity allocations through the GUI interface.

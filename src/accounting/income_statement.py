@@ -11,7 +11,7 @@ from datetime import datetime, date
 from typing import Dict, List, Any, Optional
 from dataclasses import dataclass
 
-from .models import Transaction, EXPENSE_CATEGORIES
+from .models import Transaction, MonthlyTransaction, EXPENSE_CATEGORIES
 
 
 class IncomeStatementGenerator:
@@ -269,6 +269,129 @@ class IncomeStatementGenerator:
             }
         
         return breakdown
+
+    
+    def generate_monthly_income_statement_from_monthly_transactions(
+        self, 
+        transactions: List[MonthlyTransaction], 
+        month: int, 
+        year: int,
+        currency_converter=None
+    ) -> Dict[str, Any]:
+        """
+        Generate monthly income statement from MonthlyTransaction objects
+        
+        This method is designed for the new monthly workflow
+        
+        Args:
+            transactions: List of MonthlyTransaction objects
+            month: Target month (1-12)
+            year: Target year
+            currency_converter: Optional CurrencyConverter for dual-currency display
+        
+        Returns:
+            Dict containing complete income statement data
+        """
+        # Filter transactions for the specific month
+        month_transactions = [
+            t for t in transactions 
+            if t.date.month == month and t.date.year == year
+        ]
+        
+        return self._build_income_statement_from_monthly_transactions(
+            month_transactions, f"{year}-{month:02d}", currency_converter
+        )
+    
+    def _build_income_statement_from_monthly_transactions(
+        self, 
+        transactions: List[MonthlyTransaction], 
+        period: str,
+        currency_converter=None
+    ) -> Dict[str, Any]:
+        """
+        Build income statement from MonthlyTransaction objects
+        
+        Args:
+            transactions: List of MonthlyTransaction objects
+            period: Period description (e.g., "2024-01")
+            currency_converter: Optional CurrencyConverter for dual-currency display
+        
+        Returns:
+            Complete income statement dictionary
+        """
+        # Separate revenue (positive amounts) and expenses (negative amounts)
+        revenues = [t for t in transactions if t.amount > 0]
+        expenses = [t for t in transactions if t.amount < 0]
+        
+        # Calculate revenue sections
+        service_revenue = sum(
+            t.amount for t in revenues 
+            if t.category in self.service_revenue_categories
+        )
+        other_income = sum(
+            t.amount for t in revenues 
+            if t.category not in self.service_revenue_categories
+        )
+        gross_revenue = service_revenue + other_income
+        
+        # Categorize expenses (use absolute values for expenses)
+        expense_breakdown_dict = {}
+        total_expenses_amount = Decimal('0')
+        
+        for expense in expenses:
+            category = expense.category
+            amount = abs(expense.amount)
+            
+            if category not in expense_breakdown_dict:
+                expense_breakdown_dict[category] = Decimal('0')
+            expense_breakdown_dict[category] += amount
+            total_expenses_amount += amount
+        
+        # Calculate tax expense
+        tax_expense = self._calculate_tax_expense(gross_revenue)
+        total_expenses_with_tax = total_expenses_amount + tax_expense
+        
+        # Calculate net operating income
+        net_operating_income = gross_revenue - total_expenses_with_tax
+        
+        # Build result following sample format
+        result = {
+            "period": period,
+            "revenues": {
+                "Service Revenue": self._format_amount(service_revenue, currency_converter),
+                "Other Income": self._format_amount(other_income, currency_converter),
+            },
+            "tax_expense": self._format_amount(tax_expense, currency_converter),
+            "gross_revenue": self._format_amount(gross_revenue - tax_expense, currency_converter),
+            "expenses": {},
+            "total_expenses": self._format_amount(total_expenses_amount, currency_converter),
+            "net_operating_income": self._format_amount(net_operating_income, currency_converter),
+            "currency": "CNY",
+            "generated_at": datetime.now(),
+            "transaction_count": len(transactions)
+        }
+        
+        # Add expense breakdown
+        for category, amount in expense_breakdown_dict.items():
+            result["expenses"][category] = self._format_amount(amount, currency_converter)
+        
+        return result
+    
+    def _format_amount(self, amount: Decimal, currency_converter=None) -> str:
+        """
+        Format amount for display, with optional currency conversion
+        
+        Args:
+            amount: Decimal amount to format
+            currency_converter: Optional CurrencyConverter for dual-currency display
+        
+        Returns:
+            Formatted amount string
+        """
+        if currency_converter:
+            return currency_converter.format_currency_amount(amount, 'CNY')
+        else:
+            return f"¥{amount:,.2f}"
 
 
 def generate_monthly_income_statement(

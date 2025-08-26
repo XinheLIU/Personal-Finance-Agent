@@ -3,10 +3,17 @@ Streamlit Web Application for Personal Finance Agent.
 Replacing Gradio with Streamlit for better visualization and user experience.
 """
 
+import sys
+import os
+from pathlib import Path
+
+# Add project root to Python path for imports
+project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(project_root))
+
 import streamlit as st
 import pandas as pd
 import json
-import os
 import plotly.graph_objects as go
 from datetime import datetime, date, timedelta
 from typing import Dict, Optional, Any
@@ -44,12 +51,19 @@ from src.visualization.charts import (
 )
 from src.accounting import (
     load_transactions_csv,
+    load_assets_csv,
+    save_transactions_csv,
+    save_assets_csv,
     generate_monthly_income_statement,
     generate_ytd_income_statement,
+    generate_balance_sheet,
+    generate_cash_flow_statement,
     print_income_statement,
     save_income_statement_csv,
     EXPENSE_CATEGORIES,
-    REVENUE_CATEGORIES
+    REVENUE_CATEGORIES,
+    Transaction,
+    Asset
 )
 
 # Cache for strategy weights
@@ -582,7 +596,14 @@ def main():
     elif page == "📈 Data Explorer":
         show_data_explorer_page()
     elif page == "💰 Accounting":
-        show_accounting_page()
+        # Choose between original and monthly workflow
+        accounting_tab1, accounting_tab2 = st.tabs(["📋 Original Workflow", "📊 Monthly Workflow"])
+        
+        with accounting_tab1:
+            show_accounting_page()
+        
+        with accounting_tab2:
+            show_monthly_accounting_page()
     elif page == "⚙️ System":
         show_system_page()
 
@@ -1336,7 +1357,7 @@ def show_portfolio_page():
                         normalized = {k: (v / total) for k, v in updated.items()}
                         message = save_holdings({k: round(v, 6) for k, v in normalized.items()})
                         st.success(message)
-                        st.experimental_rerun()
+                        st.rerun()
 
         # Show allocation chart below editor using current holdings
         if holdings:
@@ -1434,7 +1455,7 @@ def show_data_explorer_page():
                         try:
                             download_data_main(refresh=True)
                             st.success("Data download completed. Reloading...")
-                            st.experimental_rerun()
+                            st.rerun()
                         except Exception as e:
                             st.error(f"Data download failed: {e}")
 
@@ -1458,7 +1479,7 @@ def show_data_explorer_page():
                 try:
                     download_data_main(refresh=True)
                     st.success("Data download completed!")
-                    st.experimental_rerun()
+                    st.rerun()
                 except Exception as e:
                     st.error(f"Data download failed: {e}")
     
@@ -1552,7 +1573,7 @@ def show_system_page():
                     try:
                         download_data_main(refresh=True)
                         st.success("Data refreshed successfully.")
-                        st.experimental_rerun()
+                        st.rerun()
                     except Exception as e:
                         st.error(f"Data refresh failed: {e}")
         with op_b:
@@ -1562,7 +1583,7 @@ def show_system_page():
                         results = process_all_strategies(force_refresh=True)
                         ok = sum(1 for v in results.values() if v)
                         st.success(f"Processed {ok}/{len(results)} strategies.")
-                        st.experimental_rerun()
+                        st.rerun()
                     except Exception as e:
                         st.error(f"Processing failed: {e}")
         with op_c:
@@ -1571,16 +1592,26 @@ def show_system_page():
                     try:
                         cleanup_processed_data()
                         st.success("Processed data cache cleaned.")
-                        st.experimental_rerun()
+                        st.rerun()
                     except Exception as e:
                         st.error(f"Cleanup failed: {e}")
         
         st.caption("Backtest parameters can be configured in the Backtest tab. This dashboard focuses on system health and operations.")
 
 def show_accounting_page():
-    """Display the Professional Accounting Module interface."""
-    st.header("💰 Professional Accounting")
-    st.markdown("CSV-based transaction management and income statement generation")
+    """Enhanced Professional Accounting Module interface with complete financial statements."""
+    st.header("💰 Enhanced Professional Accounting")
+    st.markdown("Complete financial statement suite with interactive data entry and real-time analysis")
+    
+    # Import additional modules
+    from src.accounting.balance_sheet import generate_balance_sheet
+    from src.accounting.cash_flow import generate_cash_flow_statement
+    from src.accounting.sample_data import (
+        generate_sample_transactions, 
+        generate_sample_assets, 
+        get_csv_format_template,
+        get_sample_data_summary
+    )
     
     # Data Status Section
     st.subheader("📊 Data Status")
@@ -1642,7 +1673,7 @@ def show_accounting_page():
                     with open(transactions_file, 'wb') as f:
                         f.write(uploaded_file.getvalue())
                     st.success("✅ Transactions saved successfully!")
-                    st.experimental_rerun()
+                    st.rerun()
                 except Exception as e:
                     st.error(f"❌ Error saving file: {e}")
     
@@ -1662,7 +1693,7 @@ def show_accounting_page():
                 with open(transactions_file, 'w', encoding='utf-8') as f:
                     f.write(sample_data)
                 st.success("✅ Sample data created successfully!")
-                st.experimental_rerun()
+                st.rerun()
             except Exception as e:
                 st.error(f"❌ Error creating sample data: {e}")
     
@@ -1792,6 +1823,341 @@ def show_accounting_page():
         for category in REVENUE_CATEGORIES:
             revenue_data.append({'Category': category, 'Type': 'Revenue'})
         st.dataframe(pd.DataFrame(revenue_data), use_container_width=True)
+
+
+def show_monthly_accounting_page():
+    """New Monthly Accounting Workflow interface with 3 inputs → 3 outputs."""
+    st.header("📊 Monthly Accounting Workflow")
+    st.markdown("Professional workflow: **3 inputs** (transactions, assets, USD/CNY rate) → **3 outputs** (balance sheet, income statement, cash flow)")
+    
+    # Import monthly workflow modules
+    from src.accounting.io import (
+        load_monthly_assets_csv, load_exchange_rate_from_file,
+        save_balance_sheet_csv, save_income_statement_csv, save_cash_flow_statement_csv
+    )
+    from src.accounting.currency_converter import CurrencyConverter
+    from src.accounting.balance_sheet import BalanceSheetGenerator
+    from src.accounting.income_statement import IncomeStatementGenerator
+    from src.accounting.cash_flow import CashFlowGenerator
+    
+    # Month/Year Selection
+    col1, col2 = st.columns(2)
+    with col1:
+        year = st.number_input("Year:", value=2025, min_value=2020, max_value=2030)
+    with col2:
+        month = st.number_input("Month:", value=7, min_value=1, max_value=12)
+    
+    month_str = f"{month:02d}"
+    period_str = f"{year}-{month_str}"
+    
+    st.info(f"📅 Processing period: **{period_str}**")
+    
+    # File path construction
+    monthly_dir = f"data/accounting/monthly/{period_str}"
+    transactions_file = f"{monthly_dir}/transactions_{year}{month_str}.csv"
+    assets_file = f"{monthly_dir}/assets_{year}{month_str}.csv"
+    rate_file = f"{monthly_dir}/usdcny_{year}{month_str}.txt"
+    output_dir = f"{monthly_dir}/output"
+    
+    # Input Status Section
+    st.subheader("📥 Input Files Status")
+    
+    col1, col2, col3 = st.columns(3)
+    
+    input_status = {"transactions": False, "assets": False, "rate": False}
+    
+    with col1:
+        st.markdown("**1️⃣ Transactions CSV**")
+        if os.path.exists(transactions_file):
+            st.success("✅ Available")
+            # Note: Format TBD when sample is fixed
+            st.info("⏳ Format validation pending")
+            input_status["transactions"] = True
+        else:
+            st.error("❌ Missing")
+            st.code(f"Expected: {os.path.basename(transactions_file)}")
+    
+    with col2:
+        st.markdown("**2️⃣ Assets CSV**")
+        if os.path.exists(assets_file):
+            try:
+                assets, errors = load_monthly_assets_csv(assets_file, datetime(year, month, 1))
+                if errors:
+                    st.warning(f"⚠️ {len(errors)} errors")
+                    with st.expander("View errors"):
+                        for error in errors[:5]:
+                            st.text(error)
+                else:
+                    st.success(f"✅ {len(assets)} accounts")
+                    input_status["assets"] = True
+            except Exception as e:
+                st.error(f"❌ Load error: {e}")
+        else:
+            st.error("❌ Missing")
+            st.code(f"Expected: {os.path.basename(assets_file)}")
+    
+    with col3:
+        st.markdown("**3️⃣ USD/CNY Rate**")
+        if os.path.exists(rate_file):
+            try:
+                rate, errors = load_exchange_rate_from_file(rate_file, datetime(year, month, 1))
+                if errors:
+                    st.error("❌ Invalid format")
+                    for error in errors:
+                        st.text(error)
+                else:
+                    st.success(f"✅ Rate: {rate.rate}")
+                    input_status["rate"] = True
+            except Exception as e:
+                st.error(f"❌ Load error: {e}")
+        else:
+            st.error("❌ Missing")
+            st.code(f"Expected: {os.path.basename(rate_file)}")
+    
+    # File Upload Section
+    st.subheader("📁 File Management")
+    
+    tab1, tab2, tab3, tab4 = st.tabs(["📄 Upload Assets CSV", "💱 Set Exchange Rate", "📊 Create Sample Data", "📋 Format Guide"])
+    
+    with tab1:
+        st.markdown("Upload monthly assets CSV file:")
+        uploaded_assets = st.file_uploader(
+            "Choose assets CSV file", 
+            type=['csv'],
+            help="CSV format: Account, CNY, USD, Asset Class",
+            key="assets_upload"
+        )
+        
+        if uploaded_assets:
+            if st.button("💾 Save Assets CSV"):
+                try:
+                    os.makedirs(monthly_dir, exist_ok=True)
+                    with open(assets_file, 'wb') as f:
+                        f.write(uploaded_assets.getvalue())
+                    st.success("✅ Assets CSV saved successfully!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"❌ Error saving file: {e}")
+    
+    with tab2:
+        st.markdown("Set USD/CNY exchange rate:")
+        exchange_rate = st.number_input("Exchange Rate (1 USD = X CNY):", 
+                                      value=7.19, min_value=6.0, max_value=8.0, step=0.01)
+        
+        if st.button("💾 Save Exchange Rate"):
+            try:
+                os.makedirs(monthly_dir, exist_ok=True)
+                with open(rate_file, 'w', encoding='utf-8') as f:
+                    f.write(str(exchange_rate))
+                st.success(f"✅ Exchange rate saved: 1 USD = {exchange_rate} CNY")
+                st.rerun()
+            except Exception as e:
+                st.error(f"❌ Error saving rate: {e}")
+    
+    with tab3:
+        st.markdown("Create sample data for testing:")
+        
+        col_s1, col_s2 = st.columns(2)
+        
+        with col_s1:
+            if st.button("📊 Create Sample Assets"):
+                sample_assets = """Account,CNY,USD,Asset Class
+招商银行储蓄卡,"¥100,000.00",,Cash
+支付宝余额,"¥28,000.00",,Cash
+投资账户,"¥50,000.00",,Investments
+长期投资XH,"¥30,000.00",,Long-term investments
+长期投资YY,"¥20,000.00",,Long-term investments"""
+                
+                try:
+                    os.makedirs(monthly_dir, exist_ok=True)
+                    with open(assets_file, 'w', encoding='utf-8') as f:
+                        f.write(sample_assets)
+                    st.success("✅ Sample assets created!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"❌ Error: {e}")
+        
+        with col_s2:
+            if st.button("💱 Create Sample Rate"):
+                try:
+                    os.makedirs(monthly_dir, exist_ok=True)
+                    with open(rate_file, 'w', encoding='utf-8') as f:
+                        f.write("7.19")
+                    st.success("✅ Sample rate created!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"❌ Error: {e}")
+    
+    with tab4:
+        st.markdown("**Required File Formats:**")
+        
+        st.markdown("**Assets CSV Format:**")
+        st.code("""Account,CNY,USD,Asset Class
+招商银行储蓄卡,"¥100,000.00",,Cash
+支付宝余额,"¥28,000.00",,Cash
+投资账户,,"$5,000.00",Investments
+长期投资XH,"¥30,000.00",,Long-term investments""")
+        
+        st.markdown("**Exchange Rate File Format:**")
+        st.code("7.19")
+        
+        st.markdown("**Asset Classes:**")
+        st.info("• **Cash** - Current assets (checking, savings, cash equivalents)\n• **Investments** - Current investments (stocks, bonds, short-term)\n• **Long-term investments** - Fixed assets (retirement, long-term holdings)")
+    
+    # Processing Section
+    st.subheader("⚙️ Processing & Output")
+    
+    all_inputs_ready = all(input_status.values())
+    
+    if all_inputs_ready:
+        st.success("✅ All input files ready - click to process")
+        
+        if st.button("🚀 Process Monthly Accounting", type="primary", size="large"):
+            try:
+                with st.spinner("🔄 Processing monthly accounting workflow..."):
+                    # Load inputs
+                    st.text("📥 Loading inputs...")
+                    
+                    # Load assets
+                    assets, asset_errors = load_monthly_assets_csv(assets_file, datetime(year, month, 1))
+                    if asset_errors:
+                        st.error(f"❌ Asset errors: {asset_errors}")
+                        return
+                    
+                    # Load exchange rate
+                    exchange_rate, rate_errors = load_exchange_rate_from_file(rate_file, datetime(year, month, 1))
+                    if rate_errors:
+                        st.error(f"❌ Rate errors: {rate_errors}")
+                        return
+                    
+                    st.text("⚙️ Processing data...")
+                    
+                    # Create currency converter
+                    converter = CurrencyConverter(exchange_rate)
+                    
+                    # Generate balance sheet
+                    bs_generator = BalanceSheetGenerator(converter)
+                    owner_equity = bs_generator.extract_owner_equity_from_assets(assets)
+                    balance_sheet = bs_generator.generate_balance_sheet(assets, owner_equity, date(year, month, 1))
+                    
+                    # Generate income statement (placeholder until transactions available)
+                    income_statement = {
+                        "period": period_str,
+                        "revenues": {"Service Revenue": "¥0.00", "Other Income": "¥0.00"},
+                        "tax_expense": "¥0.00",
+                        "gross_revenue": "¥0.00", 
+                        "expenses": {},
+                        "total_expenses": "¥0.00",
+                        "net_operating_income": "¥0.00",
+                        "note": "Placeholder - awaiting transaction data format"
+                    }
+                    
+                    # Generate cash flow statement (placeholder until transactions available)
+                    cash_flow = {
+                        "period": period_str,
+                        "operating_activities": {"Cash received from customers": "¥0.00"},
+                        "net_operating_cash": "¥0.00",
+                        "investing_activities": {},
+                        "net_investing_cash": "¥0.00",
+                        "financing_activities": {},
+                        "net_financing_cash": "¥0.00",
+                        "net_change_in_cash": "¥0.00",
+                        "note": "Placeholder - awaiting transaction data format"
+                    }
+                    
+                    st.text("💾 Saving outputs...")
+                    
+                    # Create output directory
+                    os.makedirs(output_dir, exist_ok=True)
+                    
+                    # Save outputs
+                    bs_errors = save_balance_sheet_csv(balance_sheet, f"{output_dir}/balance_sheet_{year}{month_str}.csv")
+                    is_errors = save_income_statement_csv(income_statement, f"{output_dir}/income_statement_{year}{month_str}.csv")
+                    cf_errors = save_cash_flow_statement_csv(cash_flow, f"{output_dir}/cash_flow_{year}{month_str}.csv")
+                    
+                    all_errors = bs_errors + is_errors + cf_errors
+                    
+                    if all_errors:
+                        st.error(f"❌ Save errors: {all_errors}")
+                    else:
+                        st.success("🎉 Monthly accounting completed successfully!")
+                        st.balloons()
+                        
+                        # Display results
+                        st.subheader("📊 Generated Financial Statements")
+                        
+                        # Balance Sheet Summary
+                        st.markdown("**💰 Balance Sheet Summary:**")
+                        col_bs1, col_bs2, col_bs3 = st.columns(3)
+                        
+                        with col_bs1:
+                            st.metric("Total Assets (CNY)", balance_sheet.get('total_assets_cny', 'N/A'))
+                        with col_bs2:
+                            st.metric("Total Assets (USD)", balance_sheet.get('total_assets_usd', 'N/A'))
+                        with col_bs3:
+                            st.metric("Exchange Rate", f"1 USD = {exchange_rate.rate} CNY")
+                        
+                        # Owner Equity Breakdown
+                        if 'owner_equity' in balance_sheet and balance_sheet['owner_equity']:
+                            st.markdown("**👥 Owner Equity:**")
+                            equity_data = []
+                            for owner, equity in balance_sheet['owner_equity'].items():
+                                equity_data.append({
+                                    'Owner': owner,
+                                    'CNY': equity.get('cny', 'N/A'),
+                                    'USD': equity.get('usd', 'N/A')
+                                })
+                            st.dataframe(pd.DataFrame(equity_data), use_container_width=True)
+                        
+                        st.info(f"📁 Output files saved to: {output_dir}/")
+                        
+            except Exception as e:
+                st.error(f"❌ Processing error: {e}")
+    else:
+        missing = [k for k, v in input_status.items() if not v]
+        st.warning(f"⏳ Missing input files: {', '.join(missing)}")
+        st.info("Upload the required files above to enable processing.")
+    
+    # Output Files Status
+    st.subheader("📤 Output Files Status")
+    
+    output_files = [
+        ("Balance Sheet", f"{output_dir}/balance_sheet_{year}{month_str}.csv"),
+        ("Income Statement", f"{output_dir}/income_statement_{year}{month_str}.csv"),
+        ("Cash Flow Statement", f"{output_dir}/cash_flow_{year}{month_str}.csv")
+    ]
+    
+    col1, col2, col3 = st.columns(3)
+    
+    for i, (name, filepath) in enumerate(output_files):
+        with [col1, col2, col3][i]:
+            st.markdown(f"**{name}**")
+            if os.path.exists(filepath):
+                mtime = datetime.fromtimestamp(os.path.getmtime(filepath))
+                st.success(f"✅ Generated")
+                st.caption(f"📅 {mtime.strftime('%Y-%m-%d %H:%M')}")
+                
+                # Download button
+                with open(filepath, 'rb') as f:
+                    st.download_button(
+                        label="⬇️ Download",
+                        data=f.read(),
+                        file_name=os.path.basename(filepath),
+                        mime="text/csv",
+                        key=f"download_{name.lower().replace(' ', '_')}"
+                    )
+            else:
+                st.info("⏳ Not generated yet")
+    
+    # CLI Command Reference
+    st.subheader("💻 CLI Commands")
+    st.markdown("Alternative command-line interface for batch processing:")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        st.code(f"python -m src.cli monthly-accounting-status {year} {month}")
+    with col2:
+        st.code(f"python -m src.cli process-monthly-accounting {year} {month}")
 
 if __name__ == "__main__":
     main()

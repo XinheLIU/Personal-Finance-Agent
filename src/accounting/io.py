@@ -15,7 +15,10 @@ from pathlib import Path
 from typing import List, Dict, Any, Tuple, Optional
 import uuid
 
-from .models import Transaction, Asset, EXPENSE_CATEGORIES, get_all_categories
+from .models import (
+    Transaction, Asset, EXPENSE_CATEGORIES, get_all_categories,
+    MonthlyAsset, MonthlyTransaction, ExchangeRate
+)
 
 
 class ValidationError(Exception):
@@ -255,7 +258,7 @@ def save_transactions_csv(transactions: List[Transaction], file_path: str) -> Li
                     'description': transaction.description,
                     'amount': str(transaction.amount),
                     'category': transaction.category,
-                    'account_name': transaction.account_type,  # Map to CSV format
+                    'account_name': transaction.account_name,  # Map to CSV format
                     'account_type': transaction.transaction_type,
                     'notes': transaction.notes or ''
                 })
@@ -466,6 +469,7 @@ def _validate_and_parse_transaction_row(
         description=row["description"].strip(),
         amount=amount,
         category=row["category"],
+        account_name=row["account_name"].strip(),
         account_type=account_type,
         transaction_type=transaction_type,
         notes=row.get("notes", "").strip() or None
@@ -519,3 +523,317 @@ def _validate_and_parse_asset_row(
         as_of_date=as_of_date,
         currency=currency
     )
+
+
+# New I/O functions for monthly workflow
+
+def load_monthly_assets_csv(file_path: str, as_of_date: datetime) -> Tuple[List['MonthlyAsset'], List[str]]:
+    """
+    Load monthly assets from simplified CSV format: Account, CNY, USD, Asset Class
+    
+    Args:
+        file_path: Path to CSV file
+        as_of_date: Date for asset snapshot
+    
+    Returns:
+        Tuple of (valid_assets_list, errors_list)
+    """
+    from .models import MonthlyAsset
+    
+    assets = []
+    errors = []
+    
+    if not os.path.exists(file_path):
+        errors.append(f"File not found: {file_path}")
+        return assets, errors
+    
+    try:
+        with open(file_path, 'r', encoding='utf-8') as file:
+            reader = csv.DictReader(file)
+            
+            # Check required headers
+            required_headers = ['Account', 'CNY', 'USD', 'Asset Class']
+            missing_headers = [h for h in required_headers if h not in reader.fieldnames]
+            if missing_headers:
+                errors.append(f"Missing required headers: {', '.join(missing_headers)}")
+                return assets, errors
+            
+            for row_num, row in enumerate(reader, start=2):  # Start at 2 for header
+                try:
+                    # Skip empty account names
+                    if not row['Account'].strip():
+                        continue
+                    
+                    asset = MonthlyAsset.from_dict(row, as_of_date)
+                    assets.append(asset)
+                except ValueError as e:
+                    errors.append(f"Row {row_num}: {str(e)}")
+                except Exception as e:
+                    errors.append(f"Row {row_num}: Unexpected error - {str(e)}")
+                    
+    except UnicodeDecodeError as e:
+        errors.append(f"File encoding error: {str(e)}. Please ensure file is UTF-8 encoded.")
+    except Exception as e:
+        errors.append(f"File reading error: {str(e)}")
+    
+    return assets, errors
+
+
+def load_monthly_transactions_csv(file_path: str) -> Tuple[List['MonthlyTransaction'], List[str]]:
+    """
+    Load monthly transactions from simplified CSV format
+    
+    Args:
+        file_path: Path to CSV file
+    
+    Returns:
+        Tuple of (valid_transactions_list, errors_list)
+        
+    Note: This is a placeholder implementation. Format to be determined 
+    when sample transaction CSV is fixed.
+    """
+    from .models import MonthlyTransaction
+    
+    transactions = []
+    errors = []
+    
+    if not os.path.exists(file_path):
+        errors.append(f"File not found: {file_path}")
+        return transactions, errors
+    
+    try:
+        with open(file_path, 'r', encoding='utf-8') as file:
+            reader = csv.DictReader(file)
+            
+            # Expected headers (to be updated when format is determined)
+            expected_headers = ['date', 'description', 'amount', 'category', 'account_name', 'currency']
+            
+            for row_num, row in enumerate(reader, start=2):
+                try:
+                    transaction = MonthlyTransaction.from_dict(row)
+                    transactions.append(transaction)
+                except ValueError as e:
+                    errors.append(f"Row {row_num}: {str(e)}")
+                except Exception as e:
+                    errors.append(f"Row {row_num}: Unexpected error - {str(e)}")
+                    
+    except Exception as e:
+        errors.append(f"Error reading transactions file: {str(e)}")
+    
+    return transactions, errors
+
+
+def load_exchange_rate_from_file(file_path: str, date: datetime) -> Tuple[Optional['ExchangeRate'], List[str]]:
+    """
+    Load USD/CNY exchange rate from text file
+    
+    Args:
+        file_path: Path to text file containing exchange rate
+        date: Date for the exchange rate
+    
+    Returns:
+        Tuple of (ExchangeRate object or None, errors_list)
+    """
+    from .models import ExchangeRate
+    
+    errors = []
+    
+    try:
+        exchange_rate = ExchangeRate.from_text_file(file_path, date)
+        return exchange_rate, errors
+    except Exception as e:
+        errors.append(f"Error loading exchange rate: {str(e)}")
+        return None, errors
+
+
+def save_balance_sheet_csv(balance_sheet_data: dict, file_path: str) -> List[str]:
+    """
+    Save balance sheet to CSV file in professional format
+    
+    Args:
+        balance_sheet_data: Dictionary containing balance sheet data
+        file_path: Output CSV file path
+    
+    Returns:
+        List of error messages (empty if successful)
+    """
+    errors = []
+    
+    try:
+        # Ensure directory exists
+        os.makedirs(os.path.dirname(file_path), exist_ok=True)
+        
+        with open(file_path, 'w', newline='', encoding='utf-8-sig') as file:
+            writer = csv.writer(file)
+            
+            # Write balance sheet header
+            writer.writerow(['Assets', '', '', 'Liabilities and owner\'s equity', '', ''])
+            
+            # Assets section
+            writer.writerow(['Current assets:', 'CNY', 'USD', 'Current liabilities:', 'CNY', 'USD'])
+            
+            # Write current assets
+            current_assets = balance_sheet_data.get('current_assets', {})
+            current_liabilities = balance_sheet_data.get('current_liabilities', {})
+            
+            max_rows = max(len(current_assets), len(current_liabilities))
+            
+            asset_items = list(current_assets.items())
+            liability_items = list(current_liabilities.items())
+            
+            for i in range(max_rows):
+                asset_row = ['', '', '']  # Default empty asset row
+                liability_row = ['', '', '']  # Default empty liability row
+                
+                if i < len(asset_items):
+                    name, values = asset_items[i]
+                    asset_row = [name, values.get('cny', ''), values.get('usd', '')]
+                
+                if i < len(liability_items):
+                    name, values = liability_items[i]
+                    liability_row = [name, values.get('cny', ''), values.get('usd', '')]
+                
+                writer.writerow(asset_row + liability_row)
+            
+            # Write totals and other sections
+            writer.writerow(['Total current assets', 
+                            balance_sheet_data.get('total_current_assets_cny', ''),
+                            balance_sheet_data.get('total_current_assets_usd', ''),
+                            'Total current liabilities',
+                            balance_sheet_data.get('total_current_liabilities_cny', ''),
+                            balance_sheet_data.get('total_current_liabilities_usd', '')])
+            
+            # Fixed assets and long-term liabilities
+            writer.writerow(['Fixed assets:', 'CNY', 'USD', '', '', ''])
+            
+            fixed_assets = balance_sheet_data.get('fixed_assets', {})
+            for name, values in fixed_assets.items():
+                writer.writerow([name, values.get('cny', ''), values.get('usd', ''), '', '', ''])
+            
+            writer.writerow(['Total fixed assets',
+                            balance_sheet_data.get('total_fixed_assets_cny', ''),
+                            balance_sheet_data.get('total_fixed_assets_usd', ''),
+                            'Long-term liabilities:', 'CNY', 'USD'])
+            
+            # Owner's equity
+            writer.writerow(['', '', '', 'Owner\'s equity:', 'CNY', 'USD'])
+            
+            owner_equity = balance_sheet_data.get('owner_equity', {})
+            for owner, amount in owner_equity.items():
+                writer.writerow(['', '', '', f'Capital - {owner}', amount.get('cny', ''), amount.get('usd', '')])
+            
+            writer.writerow(['Total assets',
+                            balance_sheet_data.get('total_assets_cny', ''),
+                            balance_sheet_data.get('total_assets_usd', ''),
+                            'Total owner\'s equity',
+                            balance_sheet_data.get('total_owner_equity_cny', ''),
+                            balance_sheet_data.get('total_owner_equity_usd', '')])
+            
+    except Exception as e:
+        errors.append(f"Error saving balance sheet: {str(e)}")
+    
+    return errors
+
+
+def save_income_statement_csv(income_statement_data: dict, file_path: str) -> List[str]:
+    """
+    Save income statement to CSV file in professional format
+    
+    Args:
+        income_statement_data: Dictionary containing income statement data
+        file_path: Output CSV file path
+    
+    Returns:
+        List of error messages (empty if successful)
+    """
+    errors = []
+    
+    try:
+        # Ensure directory exists
+        os.makedirs(os.path.dirname(file_path), exist_ok=True)
+        
+        with open(file_path, 'w', newline='', encoding='utf-8-sig') as file:
+            writer = csv.writer(file)
+            
+            # Revenue section
+            writer.writerow(['Revenue', '', ''])
+            
+            revenues = income_statement_data.get('revenues', {})
+            for item, amount in revenues.items():
+                writer.writerow([item, amount, ''])
+            
+            writer.writerow(['Tax Expense', income_statement_data.get('tax_expense', ''), ''])
+            writer.writerow(['    Gross Revenue', income_statement_data.get('gross_revenue', ''), ''])
+            
+            # Expenses section
+            writer.writerow(['Expenses', '', ''])
+            
+            expenses = income_statement_data.get('expenses', {})
+            for item, amount in expenses.items():
+                writer.writerow([item, amount, ''])
+            
+            writer.writerow(['    Total Expenses', income_statement_data.get('total_expenses', ''), ''])
+            writer.writerow(['    Net Operating Income', income_statement_data.get('net_operating_income', ''), ''])
+            
+    except Exception as e:
+        errors.append(f"Error saving income statement: {str(e)}")
+    
+    return errors
+
+
+def save_cash_flow_statement_csv(cash_flow_data: dict, file_path: str) -> List[str]:
+    """
+    Save cash flow statement to CSV file in professional format
+    
+    Args:
+        cash_flow_data: Dictionary containing cash flow data
+        file_path: Output CSV file path
+    
+    Returns:
+        List of error messages (empty if successful)
+    """
+    errors = []
+    
+    try:
+        # Ensure directory exists
+        os.makedirs(os.path.dirname(file_path), exist_ok=True)
+        
+        with open(file_path, 'w', newline='', encoding='utf-8-sig') as file:
+            writer = csv.writer(file)
+            
+            # Operating activities
+            writer.writerow(['Cash Flow from Operating Activities', '', ''])
+            
+            operating = cash_flow_data.get('operating_activities', {})
+            for item, amount in operating.items():
+                writer.writerow([item, amount, ''])
+            
+            writer.writerow(['Net Cash from Operating Activities', cash_flow_data.get('net_operating_cash', ''), ''])
+            
+            # Investing activities
+            writer.writerow(['Cash Flow from Investing Activities', '', ''])
+            
+            investing = cash_flow_data.get('investing_activities', {})
+            for item, amount in investing.items():
+                writer.writerow([item, amount, ''])
+            
+            writer.writerow(['Net Cash from Investing Activities', cash_flow_data.get('net_investing_cash', ''), ''])
+            
+            # Financing activities
+            writer.writerow(['Cash Flow from Financing Activities', '', ''])
+            
+            financing = cash_flow_data.get('financing_activities', {})
+            for item, amount in financing.items():
+                writer.writerow([item, amount, ''])
+            
+            writer.writerow(['Net Cash from Financing Activities', cash_flow_data.get('net_financing_cash', ''), ''])
+            
+            # Net change in cash
+            writer.writerow(['Net Change in Cash', cash_flow_data.get('net_change_in_cash', ''), ''])
+            writer.writerow(['Cash at Beginning of Period', cash_flow_data.get('beginning_cash', ''), ''])
+            writer.writerow(['Cash at End of Period', cash_flow_data.get('ending_cash', ''), ''])
+            
+    except Exception as e:
+        errors.append(f"Error saving cash flow statement: {str(e)}")
+    
+    return errors

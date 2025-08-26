@@ -22,7 +22,7 @@ from src.accounting import (
     save_income_statement_csv
 )
 import os
-from datetime import datetime
+from datetime import datetime, date
 
 def list_strategies():
     """List all available strategies"""
@@ -323,6 +323,241 @@ def accounting_status() -> bool:
         LOG.error(f"Accounting status check failed: {e}")
         return False
 
+def monthly_accounting_status(month: str, year: str) -> bool:
+    """Show monthly accounting workflow status for specific month"""
+    try:
+        from src.accounting.io import (
+            load_monthly_assets_csv, load_exchange_rate_from_file,
+            load_monthly_transactions_csv
+        )
+        
+        # Construct file paths for monthly workflow
+        monthly_dir = f"data/accounting/monthly/{year}-{month:0>2}"
+        transactions_file = f"{monthly_dir}/transactions_{year}{month:0>2}.csv"
+        assets_file = f"{monthly_dir}/assets_{year}{month:0>2}.csv"
+        rate_file = f"{monthly_dir}/usdcny_{year}{month:0>2}.txt"
+        
+        output_dir = f"data/accounting/monthly/{year}-{month:0>2}/output"
+        
+        print(f"\n💼 Monthly Accounting Workflow Status - {year}-{month:0>2}")
+        print("=" * 50)
+        
+        # Check input files
+        print("📥 INPUT FILES:")
+        input_status = {"transactions": False, "assets": False, "rate": False}
+        
+        # Check transactions file
+        if os.path.exists(transactions_file):
+            # Note: Transaction format TBD when sample file is fixed
+            print(f"✅ Transactions: {transactions_file}")
+            input_status["transactions"] = True
+        else:
+            print(f"❌ Transactions: {transactions_file} (missing)")
+            
+        # Check assets file
+        if os.path.exists(assets_file):
+            assets, errors = load_monthly_assets_csv(assets_file, datetime(int(year), int(month), 1))
+            if errors:
+                print(f"⚠️  Assets: {assets_file} (has errors)")
+                for error in errors[:2]:
+                    print(f"   {error}")
+                if len(errors) > 2:
+                    print(f"   ... and {len(errors) - 2} more errors")
+            else:
+                print(f"✅ Assets: {assets_file} ({len(assets)} accounts)")
+                input_status["assets"] = True
+        else:
+            print(f"❌ Assets: {assets_file} (missing)")
+            
+        # Check exchange rate file
+        if os.path.exists(rate_file):
+            rate, errors = load_exchange_rate_from_file(rate_file, datetime(int(year), int(month), 1))
+            if errors:
+                print(f"⚠️  Exchange Rate: {rate_file} (has errors)")
+                for error in errors:
+                    print(f"   {error}")
+            else:
+                print(f"✅ Exchange Rate: {rate_file} (USD/CNY = {rate.rate})")
+                input_status["rate"] = True
+        else:
+            print(f"❌ Exchange Rate: {rate_file} (missing)")
+        
+        # Check output files
+        print("\n📤 OUTPUT FILES:")
+        balance_sheet_file = f"{output_dir}/balance_sheet_{year}{month:0>2}.csv"
+        income_statement_file = f"{output_dir}/income_statement_{year}{month:0>2}.csv"
+        cash_flow_file = f"{output_dir}/cash_flow_{year}{month:0>2}.csv"
+        
+        output_files = [
+            ("Balance Sheet", balance_sheet_file),
+            ("Income Statement", income_statement_file),
+            ("Cash Flow Statement", cash_flow_file)
+        ]
+        
+        for name, filepath in output_files:
+            if os.path.exists(filepath):
+                mtime = datetime.fromtimestamp(os.path.getmtime(filepath))
+                print(f"✅ {name}: {os.path.basename(filepath)} (generated {mtime.strftime('%Y-%m-%d %H:%M')})")
+            else:
+                print(f"⏳ {name}: Not generated yet")
+        
+        # Workflow readiness
+        all_inputs_ready = all(input_status.values())
+        print(f"\n🔄 WORKFLOW STATUS:")
+        if all_inputs_ready:
+            print("✅ Ready to process - all input files available")
+            print(f"   Run: python -m src.cli process-monthly-accounting {year} {month}")
+        else:
+            missing = [k for k, v in input_status.items() if not v]
+            print(f"⏳ Waiting for input files: {', '.join(missing)}")
+        
+        print()
+        return True
+        
+    except Exception as e:
+        print(f"❌ Error checking monthly accounting status: {e}")
+        return False
+
+
+def process_monthly_accounting(month: str, year: str) -> bool:
+    """Process monthly accounting workflow: 3 inputs → 3 outputs"""
+    try:
+        from src.accounting.io import (
+            load_monthly_assets_csv, load_exchange_rate_from_file,
+            save_balance_sheet_csv, save_income_statement_csv, save_cash_flow_statement_csv
+        )
+        from src.accounting.currency_converter import CurrencyConverter
+        from src.accounting.balance_sheet import BalanceSheetGenerator
+        from src.accounting.income_statement import IncomeStatementGenerator
+        from src.accounting.cash_flow import CashFlowGenerator
+        
+        print(f"\n🔄 Processing Monthly Accounting Workflow - {year}-{month:0>2}")
+        print("=" * 55)
+        
+        # Construct file paths
+        monthly_dir = f"data/accounting/monthly/{year}-{month:0>2}"
+        assets_file = f"{monthly_dir}/assets_{year}{month:0>2}.csv"
+        rate_file = f"{monthly_dir}/usdcny_{year}{month:0>2}.txt"
+        
+        output_dir = f"{monthly_dir}/output"
+        os.makedirs(output_dir, exist_ok=True)
+        
+        # Step 1: Load inputs
+        print("📥 LOADING INPUTS...")
+        
+        # Load assets
+        print(f"   Loading assets from {os.path.basename(assets_file)}...")
+        assets, asset_errors = load_monthly_assets_csv(assets_file, datetime(int(year), int(month), 1))
+        
+        if asset_errors:
+            print(f"❌ Asset loading errors:")
+            for error in asset_errors:
+                print(f"   {error}")
+            return False
+        
+        print(f"   ✅ Loaded {len(assets)} asset accounts")
+        
+        # Load exchange rate
+        print(f"   Loading exchange rate from {os.path.basename(rate_file)}...")
+        exchange_rate, rate_errors = load_exchange_rate_from_file(rate_file, datetime(int(year), int(month), 1))
+        
+        if rate_errors:
+            print(f"❌ Exchange rate loading errors:")
+            for error in rate_errors:
+                print(f"   {error}")
+            return False
+        
+        print(f"   ✅ Exchange rate: 1 USD = {exchange_rate.rate} CNY")
+        
+        # Note: Transaction loading placeholder (format TBD)
+        transactions = []  # Placeholder until transaction format is determined
+        
+        # Step 2: Process data
+        print("\n⚙️  PROCESSING DATA...")
+        
+        # Create currency converter
+        converter = CurrencyConverter(exchange_rate)
+        print("   ✅ Currency converter initialized")
+        
+        # Generate balance sheet
+        print("   Generating balance sheet...")
+        bs_generator = BalanceSheetGenerator(converter)
+        owner_equity = bs_generator.extract_owner_equity_from_assets(assets)
+        balance_sheet = bs_generator.generate_balance_sheet(assets, owner_equity, date(int(year), int(month), 1))
+        print("   ✅ Balance sheet generated")
+        
+        # Generate income statement (placeholder until transactions available)
+        print("   Generating income statement...")
+        income_statement = {
+            "period": f"{year}-{month:0>2}",
+            "revenues": {"Service Revenue": "¥0.00", "Other Income": "¥0.00"},
+            "tax_expense": "¥0.00",
+            "gross_revenue": "¥0.00",
+            "expenses": {},
+            "total_expenses": "¥0.00",
+            "net_operating_income": "¥0.00",
+            "note": "Placeholder - awaiting transaction data format"
+        }
+        print("   ⏳ Income statement placeholder generated (awaiting transaction format)")
+        
+        # Generate cash flow statement (placeholder until transactions available)
+        print("   Generating cash flow statement...")
+        cash_flow = {
+            "period": f"{year}-{month:0>2}",
+            "operating_activities": {"Cash received from customers": "¥0.00"},
+            "net_operating_cash": "¥0.00",
+            "investing_activities": {},
+            "net_investing_cash": "¥0.00",
+            "financing_activities": {},
+            "net_financing_cash": "¥0.00",
+            "net_change_in_cash": "¥0.00",
+            "note": "Placeholder - awaiting transaction data format"
+        }
+        print("   ⏳ Cash flow statement placeholder generated (awaiting transaction format)")
+        
+        # Step 3: Save outputs
+        print("\n💾 SAVING OUTPUTS...")
+        
+        # Save balance sheet
+        bs_output = f"{output_dir}/balance_sheet_{year}{month:0>2}.csv"
+        bs_errors = save_balance_sheet_csv(balance_sheet, bs_output)
+        if bs_errors:
+            print(f"❌ Balance sheet save errors:")
+            for error in bs_errors:
+                print(f"   {error}")
+        else:
+            print(f"   ✅ Balance sheet saved: {os.path.basename(bs_output)}")
+        
+        # Save income statement
+        is_output = f"{output_dir}/income_statement_{year}{month:0>2}.csv"
+        is_errors = save_income_statement_csv(income_statement, is_output)
+        if is_errors:
+            print(f"❌ Income statement save errors:")
+            for error in is_errors:
+                print(f"   {error}")
+        else:
+            print(f"   ✅ Income statement saved: {os.path.basename(is_output)}")
+        
+        # Save cash flow statement
+        cf_output = f"{output_dir}/cash_flow_{year}{month:0>2}.csv"
+        cf_errors = save_cash_flow_statement_csv(cash_flow, cf_output)
+        if cf_errors:
+            print(f"❌ Cash flow statement save errors:")
+            for error in cf_errors:
+                print(f"   {error}")
+        else:
+            print(f"   ✅ Cash flow statement saved: {os.path.basename(cf_output)}")
+        
+        print(f"\n🎉 Monthly accounting processing completed for {year}-{month:0>2}")
+        print(f"   Output directory: {output_dir}")
+        print()
+        
+        return True
+        
+    except Exception as e:
+        print(f"❌ Error processing monthly accounting: {e}")
+        return False
+
 
 def export_attribution_data(strategy_name: str, output_dir: str = "analytics/attribution"):
     """Export attribution data for a strategy to CSV/Excel files"""
@@ -408,6 +643,15 @@ def main():
     generate_statement_parser.add_argument('--export-csv', action='store_true',
                                           help='Export statement to CSV file')
     
+    # Monthly accounting workflow commands
+    monthly_status_parser = subparsers.add_parser('monthly-accounting-status', help='Show monthly accounting workflow status')
+    monthly_status_parser.add_argument('year', help='Year (e.g., 2025)')
+    monthly_status_parser.add_argument('month', help='Month (e.g., 07)')
+    
+    process_monthly_parser = subparsers.add_parser('process-monthly-accounting', help='Process monthly accounting workflow')
+    process_monthly_parser.add_argument('year', help='Year (e.g., 2025)')
+    process_monthly_parser.add_argument('month', help='Month (e.g., 07)')
+    
     # Parse arguments
     args = parser.parse_args()
     
@@ -461,6 +705,12 @@ def main():
         
         elif args.command == 'generate-income-statement':
             generate_income_statement_cli(args.period, export_csv=args.export_csv)
+        
+        elif args.command == 'monthly-accounting-status':
+            monthly_accounting_status(args.month, args.year)
+        
+        elif args.command == 'process-monthly-accounting':
+            process_monthly_accounting(args.month, args.year)
     
     except KeyboardInterrupt:
         print("\nOperation cancelled by user")

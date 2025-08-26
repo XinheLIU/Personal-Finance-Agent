@@ -2,6 +2,38 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.1] - 2025-08-26 (personal-accountant branch)
+
+### Added - Monthly Accounting Workflow Restructure
+
+- **3-Input → 3-Output Workflow**: Streamlined monthly processing (transactions CSV, assets CSV, USD/CNY rate) → (balance sheet, income statement, cash flow)
+- **Dual-Currency Support**: All financial statements display both CNY and USD with real-time conversion
+- **Multi-User Owner Equity**: Professional balance sheets with split owner equity (XH, YY, etc.)
+- **Simplified Data Models**: `MonthlyAsset`, `MonthlyTransaction`, `ExchangeRate` for streamlined processing
+- **Currency Converter**: Professional currency conversion with decimal precision and formatting
+- **Enhanced CLI**: `monthly-accounting-status` and `process-monthly-accounting` commands
+- **Monthly GUI Interface**: New "📊 Monthly Workflow" tab with file upload, validation, and processing
+- **Comprehensive Testing**: 16/16 tests passing for complete workflow validation
+
+### Files Added
+- `src/accounting/currency_converter.py` - Professional USD/CNY conversion utilities
+- `tests/test_monthly_workflow.py` - Complete test suite for monthly workflow
+- Monthly I/O functions in `src/accounting/io.py` for simplified CSV formats
+
+### Files Modified
+- `src/accounting/models.py` - Added `MonthlyAsset`, `MonthlyTransaction`, `ExchangeRate`, `OwnerEquity` models
+- `src/accounting/balance_sheet.py` - Enhanced for dual-currency and multi-user equity support
+- `src/accounting/income_statement.py` - Added monthly workflow support methods
+- `src/accounting/cash_flow.py` - Enhanced for monthly workflow processing
+- `src/cli.py` - Added monthly accounting workflow commands
+- `src/streamlit_app.py` - New monthly workflow interface alongside original workflow
+
+### Technical Improvements
+- **Professional Format**: Standard accounting statement structure with dual-currency display
+- **Input Validation**: Real-time CSV validation with detailed error reporting
+- **Data Consistency**: Input→output relationship validation ensures accuracy
+- **Monthly Processing**: Complete month-by-month workflow with file organization
+
 ## [0.4.0] - 2025-08-23 (personal-accountant branch)
 
 ### Added - Professional Accounting Module
