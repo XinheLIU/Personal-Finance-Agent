@@ -1,88 +1,40 @@
 """
-Professional Accounting Module for Personal Finance Agent
+Simplified Accounting Module for Personal Finance Agent
 
-This module provides CSV-based transaction and asset management with
-complete financial statement generation capabilities.
-
-Enhanced Features:
-- Transaction and asset data models with validation
-- CSV import/export with UTF-8 support
-- Complete financial statement suite (Income Statement, Balance Sheet, Cash Flow)
-- Interactive Streamlit UI with real-time updates
-- Enhanced CLI commands
+Streamlined module for generating income statements, cash flow statements, and balance sheets
+from transaction and asset data using CSV processing.
 
 Components:
-- models: Transaction and Asset data models
-- io: CSV read/write operations with validation
+- models: Simplified Transaction and CategoryMapper data models
+- io: Basic CSV processing with pandas
 - income_statement: Income statement generation
-- balance_sheet: Balance sheet generation
 - cash_flow: Cash flow statement generation
+- balance_sheet: Balance sheet generation
+- report_generator: Main orchestrator for financial reports
 """
 
-from .models import Transaction, Asset, EXPENSE_CATEGORIES, REVENUE_CATEGORIES
-from .io import (
-    load_transactions_csv,
-    load_assets_csv,
-    save_transactions_csv,
-    save_assets_csv,
-    save_income_statement_csv,
-    validate_csv_format,
-    ValidationError
-)
-from .income_statement import (
-    generate_monthly_income_statement,
-    generate_ytd_income_statement,
-    IncomeStatementGenerator,
-    format_currency,
-    print_income_statement
-)
-from .balance_sheet import (
-    generate_balance_sheet,
-    BalanceSheetGenerator,
-    format_currency as format_currency_bs,
-    print_balance_sheet
-)
-from .cash_flow import (
-    generate_cash_flow_statement,
-    CashFlowGenerator,
-    format_currency as format_currency_cf,
-    print_cash_flow_statement
-)
-from .sample_data import (
-    generate_sample_transactions,
-    generate_sample_assets,
-    get_sample_data_summary,
-    create_sample_csv_data,
-    get_csv_format_template
-)
+from .models import Transaction, CategoryMapper, REVENUE_CATEGORIES, get_all_categories
+from .io import TransactionProcessor, save_statement_csv, save_transposed_data
+from .income_statement import IncomeStatementGenerator, format_currency, print_income_statement
+from .cash_flow import CashFlowStatementGenerator, print_cash_flow_statement
+from .balance_sheet import BalanceSheetGenerator, print_balance_sheet
+from .report_generator import FinancialReportGenerator
 
-__version__ = "0.2.0"
+__version__ = "1.0.0"
 __all__ = [
     "Transaction",
-    "Asset", 
-    "EXPENSE_CATEGORIES",
+    "CategoryMapper",
     "REVENUE_CATEGORIES",
-    "load_transactions_csv",
-    "load_assets_csv",
-    "save_transactions_csv", 
-    "save_assets_csv",
-    "save_income_statement_csv",
-    "validate_csv_format",
-    "ValidationError",
-    "generate_monthly_income_statement",
-    "generate_ytd_income_statement",
+    "get_all_categories",
+    "TransactionProcessor",
+    "save_statement_csv",
+    "save_transposed_data",
     "IncomeStatementGenerator",
     "format_currency",
     "print_income_statement",
-    "generate_balance_sheet",
+    "CashFlowStatementGenerator",
+    "print_cash_flow_statement",
     "BalanceSheetGenerator",
     "print_balance_sheet",
-    "generate_cash_flow_statement",
-    "CashFlowGenerator",
-    "print_cash_flow_statement",
-    "generate_sample_transactions",
-    "generate_sample_assets",
-    "get_sample_data_summary",
-    "create_sample_csv_data",
-    "get_csv_format_template"
+    "FinancialReportGenerator"
 ]
