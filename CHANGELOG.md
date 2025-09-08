@@ -2,6 +2,61 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.3] - 2025-09-06 (personal-accountant branch)
+
+### Added - Complete Data Storage & Management System
+
+- **Unified Data Architecture**: Single `MonthlyDataStorage` system handles both historical bulk uploads and individual monthly data (no separate storage systems)
+- **Bilingual Data Flow**: Chinese input → English storage with `CategoryTranslator` supporting 16+ category mappings (房租→Rent, 餐饮→Food & Dining, etc.)
+- **Bulk Historical Upload**: Table format parser for User×Category×Month matrices with real-time Chinese→English translation and validation
+- **Schema Consistency**: All modules now use identical income statement JSON format ensuring perfect alignment between monthly comparison and statement generation
+- **Enhanced Data Management**: 5-tab interface with Bulk Upload, comprehensive CRUD operations, batch editing across multiple months, and category translation tools
+- **Professional Validation Pipeline**: Complete data integrity checks, format compliance, and error reporting throughout the data flow
+
+### Files Added
+- `src/accounting/category_translator.py` - Comprehensive Chinese-English category translation with validation
+- `src/accounting/data_storage_utils.py` - Enhanced with bulk upload parsing, translation utilities, and schema standardization functions
+
+### Files Modified
+- `src/accounting/monthly_comparison.py` - Updated to use income statement schema format for complete alignment
+- `src/streamlit_pages/accounting_management.py` - Simplified from 1,891 to 999 lines (47% reduction) by moving complex data management to unified interface
+- `src/streamlit_pages/system_data_management.py` - Enhanced with comprehensive accounting data management interface
+- `src/accounting/data_storage.py` - Confirmed as unified storage system (no changes needed - already properly designed)
+
+### Technical Achievements
+- **100% Schema Alignment**: Monthly comparison outputs identical to income statement format
+- **Bilingual Workflow**: Seamless Chinese→English processing with category validation
+- **Single Source of Truth**: Unified data storage eliminates data duplication and ensures consistency
+- **Batch Operations**: Multi-month category renaming, amount scaling, and translation across entire dataset
+- **Comprehensive Testing**: All data flow components verified with automated test suite
+
+### User Experience Improvements
+- **Simplified Architecture**: Separated core accounting functions from data management for cleaner user experience
+- **Unified Data Management**: All bulk upload, editing, and management operations consolidated in System & Data Management page
+- **Intuitive Bulk Upload**: Table format matches user's natural expense tracking format with direct table editing (no text UI)
+- **Real-time Validation**: Immediate feedback on data format and category translation
+- **Smart Merge Logic**: Upload conflicts clearly shown (e.g., existing 25.4-6, upload 25.6-25.8, override at 25.6)
+- **Direct Table Editing**: Users can edit, upload, and delete data on same unified interface
+
+## [0.4.2] - 2025-09-04 (personal-accountant branch)
+
+### Refactored - Accounting Interface Optimization
+
+- **Streamlined UI**: Reduced from 5 tabs to 4 tabs by removing bulky templates section
+- **Contextual Help**: Added "❓ CSV Format Help" expandable sections with format specifications on Income Statement and Balance Sheet generation pages
+- **Code Organization**: Extracted 15+ utility functions for better maintainability and reduced code duplication
+- **File Size Reduction**: Reduced accounting_management.py from 1,448 to ~1,100 lines (24% reduction)
+- **Enhanced UX**: Cleaner year-month selector and streamlined interface elements
+
+### Files Modified
+- `src/streamlit_pages/accounting_management.py` - Major refactoring with utility function extraction
+
+### Technical Improvements
+- **Modular Functions**: Broke down large functions into focused, single-responsibility helpers
+- **Better Error Handling**: Centralized error handling patterns across deletion and data operations
+- **Improved Maintainability**: Eliminated redundant code patterns and improved naming conventions
+- **User Experience**: More intuitive interface with contextual help replacing separate templates tab
+
 ## [0.4.1] - 2025-08-26 (personal-accountant branch)
 
 ### Added - Monthly Accounting Workflow Restructure

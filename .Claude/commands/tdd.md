@@ -1,4 +1,4 @@
-ARGUMENTS: PRD file path (required), tests path or glob (optional)
+ARGUMENTS: PRD file path (required), tests path or test infotmation
 
 1. validate PRD path exists; read PRD (UTF-8); extract requirements and acceptance criteria
 2. build a traceability matrix: requirement → acceptance criteria → test IDs
@@ -12,4 +12,3 @@ ARGUMENTS: PRD file path (required), tests path or glob (optional)
 10. when all tests pass, run full suite and static checks; ensure no linter/type errors
 11. print list of edited/created files and final test summary
 12. create a descriptive commit referencing the PRD and key tests
-
