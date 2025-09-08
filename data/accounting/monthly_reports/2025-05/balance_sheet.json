@@ -1,0 +1,43 @@
+{
+  "year_month": "2025-05",
+  "statement_type": "balance_sheet",
+  "generated_at": "2025-09-06T21:34:15.551729",
+  "data": {
+    "Current Assets": {
+      "Cash": {
+        "CNY": 2987655.0300000007,
+        "USD": 426807.8614285714
+      },
+      "Investments": {
+        "CNY": 1600438.84,
+        "USD": 228634.12
+      },
+      "Other": {
+        "CNY": 0.0,
+        "USD": 0.0
+      },
+      "Total Current Assets": {
+        "CNY": 4588093.870000001,
+        "USD": 655441.9814285714
+      }
+    },
+    "Fixed Assets": {
+      "Long-term Investments": {
+        "CNY": 362661.94999999995,
+        "USD": 51808.85
+      },
+      "Total Fixed Assets": {
+        "CNY": 362661.94999999995,
+        "USD": 51808.85
+      }
+    },
+    "Total Assets": {
+      "CNY": 4950755.820000001,
+      "USD": 707250.8314285714
+    }
+  },
+  "metadata": {
+    "generation_method": "csv_upload",
+    "exchange_rate": 7.0
+  }
+}

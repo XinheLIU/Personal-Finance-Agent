@@ -1,0 +1,30 @@
+{
+  "year_month": "2025-05",
+  "statement_type": "income_statement",
+  "generated_at": "2025-09-04T01:03:55.479323",
+  "data": {
+    "Entity": "Combined",
+    "Revenue": {
+      "Service Revenue": 103486.78
+    },
+    "Total Revenue": 103486.78,
+    "Expenses": {
+      "Food & Dining": 3699.66,
+      "Transportation": 1271.22,
+      "Travel & Entertainment": 116.3,
+      "General Shopping": 1665.36,
+      "Health & Wellness": 438.4,
+      "Personal Expenses": 3854.6,
+      "Pet Expenses": 594.21,
+      "Other Expenses": 33077.05,
+      "Rent": 13900.48,
+      "Utilities": 272.9
+    },
+    "Total Expenses": 58890.17999999999,
+    "Net Income": 44596.600000000006
+  },
+  "metadata": {
+    "entity": "Combined",
+    "generation_method": "csv_upload"
+  }
+}

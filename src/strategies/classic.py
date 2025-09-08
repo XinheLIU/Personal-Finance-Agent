@@ -19,14 +19,28 @@ def calculate_target_weights_standalone(current_date, processed_df):
     pe_percentiles = {}
 
     try:
-        pe_percentiles['CSI300'], _ = pe_percentile_from_processed(processed_df, 'CSI300', current_date, 10)
-        pe_percentiles['CSI500'], _ = pe_percentile_from_processed(processed_df, 'CSI500', current_date, 10)
-        pe_percentiles['HSI'], _ = pe_percentile_from_processed(processed_df, 'HSI', current_date, 10)
-        pe_percentiles['HSTECH'], _ = pe_percentile_from_processed(processed_df, 'HSTECH', current_date, 10)
-        pe_percentiles['SP500'], _ = pe_percentile_from_processed(processed_df, 'SP500', current_date, 20)
-        pe_percentiles['NASDAQ100'], _ = pe_percentile_from_processed(processed_df, 'NASDAQ100', current_date, 20)
+        # Safe helper to tolerate missing/invalid processed PE data
+        def _safe_pe(asset_name: str, years: int, default_value: float = 0.5) -> float:
+            try:
+                value, _ = pe_percentile_from_processed(processed_df, asset_name, current_date, years)
+                return float(value)
+            except Exception as e:
+                LOG.warning(f"Using default PE percentile for {asset_name} due to error: {e}")
+                return float(default_value)
 
-        yield_pct = yield_percentile_from_processed(processed_df, current_date, 20)
+        pe_percentiles['CSI300'] = _safe_pe('CSI300', 10)
+        pe_percentiles['CSI500'] = _safe_pe('CSI500', 10)
+        pe_percentiles['HSI'] = _safe_pe('HSI', 10)
+        pe_percentiles['HSTECH'] = _safe_pe('HSTECH', 10)
+        pe_percentiles['SP500'] = _safe_pe('SP500', 20)
+        pe_percentiles['NASDAQ100'] = _safe_pe('NASDAQ100', 20)
+
+        try:
+            yield_pct = float(yield_percentile_from_processed(processed_df, current_date, 20))
+        except Exception as e:
+            LOG.warning(f"Using default yield percentile due to error: {e}")
+            yield_pct = 0.5
+
         current_yield = current_yield_from_processed(processed_df, current_date)
 
         weights['CSI300'] = 0.15 * (1 - pe_percentiles['CSI300'])
@@ -80,7 +94,20 @@ def get_target_weights_and_metrics_standalone():
         if processed_df is None or processed_df.empty:
             raise ValueError("Processed dataset is empty for 'dynamic_allocation'.")
 
-        current_date = min(processed_df.index.max(), processed_df.index.max()).to_pydatetime().date()
+        # Robustly ensure datetime index and extract latest date
+        processed_df = processed_df.copy()
+        if not isinstance(processed_df.index, pd.DatetimeIndex):
+            processed_df.index = pd.to_datetime(processed_df.index, errors='coerce')
+            processed_df = processed_df[processed_df.index.notna()]
+        if hasattr(processed_df.index, 'tz') and processed_df.index.tz is not None:
+            processed_df.index = processed_df.index.tz_localize(None)
+        if not processed_df.index.is_monotonic_increasing:
+            processed_df = processed_df.sort_index()
+        if processed_df.empty:
+            raise ValueError("Processed dataset has no valid datetime index for 'dynamic_allocation'.")
+
+        latest_ts = processed_df.index.max()
+        current_date = latest_ts.date()
 
         weights, pe_percentiles, current_yield, yield_pct = calculate_target_weights_standalone(current_date, processed_df)
 

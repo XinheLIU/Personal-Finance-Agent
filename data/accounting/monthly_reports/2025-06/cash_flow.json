@@ -1,0 +1,38 @@
+{
+  "year_month": "2025-06",
+  "statement_type": "cash_flow",
+  "generated_at": "2025-09-06T21:22:18.523519",
+  "data": {
+    "Entity": "Combined",
+    "Operating Activities": {
+      "Details": {
+        "Food & Dining": -3699.66,
+        "Transportation": -1271.22,
+        "Travel & Entertainment": -116.3,
+        "General Shopping": -1665.36,
+        "Health & Wellness": -438.4,
+        "Personal Expenses": -3854.6,
+        "Pet Expenses": -594.21,
+        "Service Revenue": 103486.78,
+        "Other Expenses": -33077.05,
+        "Rent": -13900.48,
+        "Prepaid: Pre-paid Expense": -34089.39,
+        "Utilities": -272.9
+      },
+      "Net Cash from Operating": 10507.210000000006
+    },
+    "Investing Activities": {
+      "Details": {},
+      "Net Cash from Investing": 0
+    },
+    "Financing Activities": {
+      "Details": {},
+      "Net Cash from Financing": 0
+    },
+    "Net Change in Cash": 10507.210000000006
+  },
+  "metadata": {
+    "entity": "Combined",
+    "generation_method": "csv_upload"
+  }
+}

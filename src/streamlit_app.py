@@ -1452,26 +1452,126 @@ def show_data_explorer_page():
                     st.error(f"Data download failed: {e}")
     
     with col2:
-        st.write("**Download New Asset**")
-        new_ticker = st.text_input("Enter ticker symbol:")
-        if st.button("📥 Download New Ticker") and new_ticker:
+        st.write("**Download New Assets**")
+        
+        # Input method selection
+        input_method = st.radio(
+            "Input method:",
+            ["Single ticker", "Multiple tickers (batch)"],
+            horizontal=True
+        )
+        
+        tickers_to_download = []
+        
+        if input_method == "Single ticker":
+            new_ticker = st.text_input("Enter ticker symbol:")
+            if new_ticker.strip():
+                tickers_to_download = [new_ticker.strip()]
+        else:
+            # Batch input options
+            batch_input_type = st.selectbox(
+                "Batch input type:",
+                ["Text area (one per line)", "Comma-separated", "Upload file"]
+            )
+            
+            if batch_input_type == "Text area (one per line)":
+                ticker_text = st.text_area(
+                    "Enter ticker symbols (one per line):",
+                    placeholder="AAPL\nMSFT\nGOOGL\nTSLA",
+                    height=100
+                )
+                if ticker_text.strip():
+                    tickers_to_download = [ticker.strip() for ticker in ticker_text.strip().split('\n') if ticker.strip()]
+            
+            elif batch_input_type == "Comma-separated":
+                ticker_text = st.text_input(
+                    "Enter ticker symbols (comma-separated):",
+                    placeholder="AAPL, MSFT, GOOGL, TSLA"
+                )
+                if ticker_text.strip():
+                    tickers_to_download = [ticker.strip() for ticker in ticker_text.split(',') if ticker.strip()]
+            
+            elif batch_input_type == "Upload file":
+                uploaded_file = st.file_uploader(
+                    "Upload a CSV/TXT file with ticker symbols",
+                    type=['csv', 'txt'],
+                    help="File should contain ticker symbols, one per line or in the first column"
+                )
+                if uploaded_file is not None:
+                    try:
+                        if uploaded_file.name.endswith('.csv'):
+                            df = pd.read_csv(uploaded_file)
+                            # Take the first column or look for common column names
+                            if 'ticker' in df.columns.str.lower():
+                                tickers_to_download = df[df.columns[df.columns.str.lower().str.contains('ticker')][0]].dropna().astype(str).str.strip().tolist()
+                            elif 'symbol' in df.columns.str.lower():
+                                tickers_to_download = df[df.columns[df.columns.str.lower().str.contains('symbol')][0]].dropna().astype(str).str.strip().tolist()
+                            else:
+                                tickers_to_download = df.iloc[:, 0].dropna().astype(str).str.strip().tolist()
+                        else:  # txt file
+                            content = uploaded_file.read().decode('utf-8')
+                            tickers_to_download = [ticker.strip() for ticker in content.strip().split('\n') if ticker.strip()]
+                    except Exception as e:
+                        st.error(f"Error reading file: {e}")
+        
+        # Display preview of tickers to download
+        if tickers_to_download:
+            st.write(f"**Tickers to download ({len(tickers_to_download)}):**")
+            if len(tickers_to_download) <= 10:
+                st.write(", ".join(tickers_to_download))
+            else:
+                st.write(f"{', '.join(tickers_to_download[:10])}... and {len(tickers_to_download) - 10} more")
+        
+        # Download button
+        if st.button("📥 Download Tickers", disabled=not tickers_to_download) and tickers_to_download:
             from src.data_center.download import download_yfinance_data, download_akshare_index
             
-            with st.spinner(f"Downloading {new_ticker}..."):
+            # Initialize tracking variables
+            successful_downloads = []
+            failed_downloads = []
+            
+            # Create progress bar
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            
+            for i, ticker in enumerate(tickers_to_download):
+                # Update progress
+                progress = (i + 1) / len(tickers_to_download)
+                progress_bar.progress(progress)
+                status_text.text(f"Downloading {ticker} ({i + 1}/{len(tickers_to_download)})...")
+                
                 try:
                     # Try yfinance first
-                    filepath, _, _ = download_yfinance_data(new_ticker, new_ticker)
+                    filepath, _, _ = download_yfinance_data(ticker, ticker)
                     if filepath:
-                        st.success(f"Successfully downloaded {new_ticker} from yfinance.")
+                        successful_downloads.append((ticker, "yfinance"))
                     else:
                         # Try akshare
-                        filepath, _, _ = download_akshare_index(new_ticker, new_ticker)
+                        filepath, _, _ = download_akshare_index(ticker, ticker)
                         if filepath:
-                            st.success(f"Successfully downloaded {new_ticker} from akshare.")
+                            successful_downloads.append((ticker, "akshare"))
                         else:
-                            st.error(f"Failed to download {new_ticker} from both sources.")
+                            failed_downloads.append((ticker, "Both sources failed"))
                 except Exception as e:
-                    st.error(f"Error downloading {new_ticker}: {e}")
+                    failed_downloads.append((ticker, str(e)))
+            
+            # Clear progress indicators
+            progress_bar.empty()
+            status_text.empty()
+            
+            # Display results
+            if successful_downloads:
+                st.success(f"✅ Successfully downloaded {len(successful_downloads)} ticker(s):")
+                success_df = pd.DataFrame(successful_downloads, columns=["Ticker", "Source"])
+                st.dataframe(success_df, use_container_width=True, hide_index=True)
+            
+            if failed_downloads:
+                st.error(f"❌ Failed to download {len(failed_downloads)} ticker(s):")
+                failed_df = pd.DataFrame(failed_downloads, columns=["Ticker", "Error"])
+                st.dataframe(failed_df, use_container_width=True, hide_index=True)
+            
+            if successful_downloads:
+                st.info("💡 Tip: Refresh the page to see the new data in the Available Data Overview.")
 
 def show_system_page():
     """Display system manager dashboard (read-only config, ops, and status)."""
