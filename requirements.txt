@@ -8,7 +8,9 @@ seaborn
 requests
 python-dotenv
 openpyxl
+xlsxwriter
 pytest
 plotly
 bokeh
 streamlit
+fastparquet
