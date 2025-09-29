@@ -1,25 +1,13 @@
 """
-Simplified data models for accounting module
+Category domain entities
 
-Based on the example implementation, focusing on essential functionality
-for income statement and cash flow generation.
+Defines category mappings and constants for financial statement categorization.
+Uses configuration files for maintainable category management.
 """
 
-from dataclasses import dataclass
-from typing import Dict, List, Optional
+from typing import Dict, List
+from ...config import get_category_config
 
-
-@dataclass
-class Transaction:
-    """Represents a single transaction"""
-    description: str
-    amount: float
-    debit_category: str
-    credit_account: str
-    user: str
-    transaction_type: str = "expense"  # revenue, expense, prepaid_asset
-    affects_cash_flow: bool = True     # whether this transaction affects cash flow
-    
 
 class CategoryMapper:
     """Maps transaction categories to financial statement categories"""
@@ -32,8 +20,6 @@ class CategoryMapper:
             config_loader: Optional CategoryConfigLoader instance.
                           If None, uses the global configuration loader.
         """
-        from ..config import get_category_config
-        
         if config_loader is None:
             config_loader = get_category_config()
         
@@ -52,7 +38,6 @@ class CategoryMapper:
 
 def get_revenue_categories() -> List[str]:
     """Get revenue categories from configuration"""
-    from ..config import get_category_config
     config_loader = get_category_config()
     return config_loader.get_revenue_categories()
 

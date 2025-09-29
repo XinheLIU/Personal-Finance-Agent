@@ -28,7 +28,7 @@ st.set_page_config(
 # Import page functions
 from src.modules.portfolio.investment_management import show_investment_page
 from src.modules.data_management.system_data_management import show_system_data_page
-from src.modules.accounting.ui.accounting_management import show_simplified_accounting_page
+from src.modules.accounting.views.pages import accounting_management_page
 
 # Cache for strategy weights
 if 'target_weights_cache' not in st.session_state:
@@ -86,7 +86,7 @@ def main():
         elif page == "🛠️ System & Data Management":
             show_system_data_page()
         elif page == "💰 Accounting":
-            show_simplified_accounting_page()
+            accounting_management_page()
         else:
             st.error(f"Unknown page: {page}")
             
