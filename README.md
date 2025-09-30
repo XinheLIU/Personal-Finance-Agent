@@ -101,7 +101,7 @@ The system includes a complete accounting module for transaction management and 
 
 ```bash
 # Launch GUI and navigate to Accounting tab
-streamlit run src/streamlit_app.py
+streamlit run src/ui/streamlit_app.py
 ```
 
 **Accounting Features:**

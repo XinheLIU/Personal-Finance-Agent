@@ -1,8 +1,30 @@
 # Accounting Module
 
 A comprehensive, professional accounting system with CSV-based transaction management, financial statement generation, and multi-user support. Features Chinese language support and CNY currency handling.
-
-## 🏗️ Architecture Overview (MVP Pattern)
+- [Accounting Module](#accounting-module)
+- [🏗️ Architecture Overview (MVP Pattern)](#️-architecture-overview-mvp-pattern)
+  - [📊 Income Statement Generation Workflow (MVP Pattern)](#-income-statement-generation-workflow-mvp-pattern)
+    - [Overview](#overview)
+    - [MVP Workflow Process](#mvp-workflow-process)
+      - [1. **CSV Upload \& Validation (View Layer)**](#1-csv-upload--validation-view-layer)
+      - [2. **Data Preview \& Editing (View Layer)**](#2-data-preview--editing-view-layer)
+      - [3. **Transaction Processing (Model Layer)**](#3-transaction-processing-model-layer)
+      - [4. **Income Statement Generation (Model Layer)**](#4-income-statement-generation-model-layer)
+      - [5. **Business Logic Orchestration (Presenter Layer)**](#5-business-logic-orchestration-presenter-layer)
+      - [6. **Results Display \& Export (View Layer)**](#6-results-display--export-view-layer)
+      - [7. **Optional System Storage (Model/Repository Layer)**](#7-optional-system-storage-modelrepository-layer)
+  - [🧪 Testing Strategy (MVP Architecture)](#-testing-strategy-mvp-architecture)
+    - [MVP Test Structure](#mvp-test-structure)
+    - [Test Coverage Matrix (MVP)](#test-coverage-matrix-mvp)
+    - [Current Test Files](#current-test-files)
+      - [1. `test_accounting.py` - Core Functionality ✅](#1-test_accountingpy---core-functionality-)
+      - [2. `test_consolidated_reports.py` - Advanced Features ✅](#2-test_consolidated_reportspy---advanced-features-)
+      - [3. `test_comparative_analysis.py` - Analytics ✅](#3-test_comparative_analysispy---analytics-)
+      - [4. `test_csv_upload_validation.py` - CSV Processing ✅ **NEW**](#4-test_csv_upload_validationpy---csv-processing--new)
+      - [5. `test_data_preview_validation.py` - Data Validation ✅ **NEW**](#5-test_data_preview_validationpy---data-validation--new)
+      - [6. `test_transaction_processing_enhanced.py` - Transaction Processing ✅ **NEW**](#6-test_transaction_processing_enhancedpy---transaction-processing--new)
+      - [7. `test_income_statement_enhanced.py` - Income Statement Enhancement ✅ **NEW**](#7-test_income_statement_enhancedpy---income-statement-enhancement--new)
+# 🏗️ Architecture Overview (MVP Pattern)
 
 Following **Model-View-Presenter (MVP)** architecture for clean separation of concerns:
 
@@ -43,7 +65,7 @@ The income statement generation workflow transforms CSV transaction data into pr
 
 ### MVP Workflow Process
 
-#### 1. **CSV Upload & Validation (View Layer)**
+#### 1. **CSV Upload (View Layer)**
 ```
 User → CSV File → views/components.py:handle_csv_upload()
 ```
@@ -52,35 +74,64 @@ User → CSV File → views/components.py:handle_csv_upload()
 - **Expected Format**:
 ```csv
 Description,Amount,Debit,Credit,User
-Monthly Salary,8000.0,工资收入,Bank Account,User1
+Monthly Salary,¥8,000.00,工资收入,Bank Account,User1
 Rent Payment,-2000.0,房租,Bank Account,User1
 ```
-- **Output**: Temporary file path (no business logic)
+- **Output**: Raw CSV file path (no business logic, no validation)
 
-#### 2. **Data Preview & Editing (View Layer)**
+#### 2. **Data Cleaning & Validation (Model Layer)** ⭐ **NEW**
 ```
-Temporary File → views/components.py:show_data_preview_editor() → Enhanced CSV
+Raw CSV → models/business/data_cleaner.py:DataCleaner → Cleaned & Validated DataFrame
+```
+- **File**: `models/business/data_cleaner.py:DataCleaner` (to be implemented)
+- **Purpose**: Automated data cleaning and validation BEFORE user preview
+- **Cleaning Operations**:
+  - Remove completely empty rows and columns
+  - Normalize currency symbols (¥8,000.00 → 8000.00, $1,500 → 1500)
+  - Strip whitespace from text fields
+  - Standardize date formats
+- **Validation Rules**:
+  - ✅ **Required Fields**: If row has Amount, must have both Debit AND Credit accounts
+  - ✅ **Data Types**: Amount must be numeric, Description must be text
+  - ✅ **Business Rules**: Revenue categories must have positive amounts
+  - ❌ **Errors**: Collect all validation errors with row numbers for user review
+- **Output**: 
+  - Cleaned DataFrame (ready for preview)
+  - Validation report (errors with specific row references)
+
+#### 3. **Data Preview & Editing (View Layer)**
+```
+Cleaned DataFrame + Validation Errors → views/components.py:show_data_preview_editor() → User-Corrected CSV
 ```
 - **File**: `views/components.py:show_data_preview_editor()`
-- **Purpose**: Passive UI for data validation and correction
+- **Purpose**: Passive UI for reviewing CLEAN data and fixing validation errors
 - **Features**: 
-  - Live editing capabilities (UI only)
-  - Display validation (UI only)
-  - Currency formatting display
-- **Output**: User-edited DataFrame (no business logic)
+  - Display **pre-cleaned** data (no empty rows, normalized currency)
+  - Highlight validation errors with clear messages
+  - Live editing capabilities for fixing issues (UI only)
+  - Visual indicators for required field completion
+- **User Experience**: 
+  - User sees clean, professional data immediately
+  - Validation errors clearly marked (e.g., "Row 5: Missing Debit account")
+  - User fixes only real issues, not formatting problems
+- **Output**: User-corrected DataFrame (business issues fixed)
 
-#### 3. **Transaction Processing (Model Layer)**
+#### 4. **Transaction Processing (Model Layer)**
+
 ```
-Enhanced CSV → models/business/transaction_processor.py:TransactionProcessor → Transaction Objects
+Corrected CSV → models/business/transaction_processor.py:TransactionProcessor → Transaction Objects
 ```
+
 - **File**: `models/business/transaction_processor.py:TransactionProcessor`
+- **Purpose**: Convert validated DataFrame into domain objects
 - **Key Methods**:
-  - `load_transactions()`: Parse CSV into Transaction objects
-  - `_clean_amount()`: Handle currency symbols (¥, $) and formatting
+  - `load_transactions()`: Parse DataFrame into Transaction objects
   - `_determine_transaction_type_and_sign()`: Classify transactions
   - `get_all_users()`: Extract unique users for multi-user support
+- **Note**: No data cleaning needed here - data is already clean from step 2!
 
 **Transaction Classification Logic**:
+
 ```python
 # Revenue: Positive amounts in revenue categories
 if debit_category in REVENUE_CATEGORIES and amount > 0:
@@ -93,10 +144,12 @@ elif transaction_type == "prepaid_asset":
     # Skip from current period income calculation
 ```
 
-#### 4. **Income Statement Generation (Model Layer)**
+#### 5. **Income Statement Generation (Model Layer)**
+
 ```
 Transaction Objects → models/business/income_statement_generator.py:IncomeStatementGenerator → Income Statement
 ```
+
 - **File**: `models/business/income_statement_generator.py:IncomeStatementGenerator`
 - **Core Logic**:
   - **Revenue Categorization**: Groups positive amounts by category
@@ -116,19 +169,20 @@ Transaction Objects → models/business/income_statement_generator.py:IncomeStat
 }
 ```
 
-#### 5. **Business Logic Orchestration (Presenter Layer)**
+#### 6. **Business Logic Orchestration (Presenter Layer)**
 ```
 Core Components → presenters/income_statement_presenter.py:process_transaction_statements() → Coordinated Results
 ```
 - **File**: `presenters/income_statement_presenter.py:IncomeStatementPresenter`
 - **Orchestrates**:
+  - Calls DataCleaner (Model - NEW step 2)
   - Calls TransactionProcessor (Model)
   - Calls IncomeStatementGenerator (Model)
   - Coordinates multi-user processing
   - Handles errors and validation
 - **Output**: Complete financial statement set (no business logic, just coordination)
 
-#### 6. **Results Display & Export (View Layer)**
+#### 7. **Results Display & Export (View Layer)**
 ```
 Statement Data → views/displays.py:display_income_statements_results() → User Interface
 ```
@@ -139,7 +193,7 @@ Statement Data → views/displays.py:display_income_statements_results() → Use
   - **Export Options**: Download UI widgets (no business logic)
   - **Currency Formatting**: Display formatting only
 
-#### 7. **Optional System Storage (Model/Repository Layer)**
+#### 8. **Optional System Storage (Model/Repository Layer)**
 ```
 Generated Statements → models/repositories/data_storage.py → Persistent Storage
 ```
@@ -318,59 +372,3 @@ TestPrepaidAssetHandling.test_complex_prepaid_scenario()
 TestIncomeStatementIntegration.test_complete_workflow_with_csv()
 TestIncomeStatementDisplayAndFormatting.test_currency_formatting()
 ```
-
-## 🎯 Test Results and Known Issues
-
-### Test Execution Summary
-
-**Total Tests Created**: 41 new tests across 4 new test files  
-**Tests Passing**: 35 tests (85.4% pass rate)  
-**Tests Failing**: 6 tests (14.6% failure rate)  
-
-### Identified Issues Through Testing ⚠️
-
-The tests have successfully identified several critical issues that need attention:
-
-#### 1. CSV Processing Issues
-- **Malformed CSV Handling**: Pandas parser fails on inconsistent column counts
-- **Currency Symbol Processing**: Some Chinese currency formats cause parsing errors
-- **Empty Row Filtering**: Logic doesn't properly handle mixed empty/partial rows
-
-#### 2. Transaction Classification Issues  
-- **Cash Flow Detection**: "Bank Account" not recognized as cash-equivalent
-- **Revenue Classification**: Debit/Credit logic needs refinement for revenue transactions
-- **Prepaid Asset Logic**: Cash flow impact detection incorrect for prepaid transactions
-
-#### 3. Income Statement Issues
-- **Tax Category Mapping**: Tax expenses not properly mapped to "Tax" categories
-- **Prepaid Exclusion**: Some prepaid conversions not properly included as expenses
-
-### Remaining Test Coverage Gaps
-
-#### UI Layer Components (Not Yet Tested)
-```python
-# Future enhancement: test_ui_components.py
-class TestStreamlitComponents:
-    def test_file_uploader_integration()
-    def test_data_editor_functionality()
-    def test_error_message_display()
-```
-
-#### True Integration Testing (Partially Covered)
-```python
-# Future enhancement: test_full_integration.py  
-class TestEndToEndUserWorkflow:
-    def test_streamlit_ui_to_statement_generation()
-    def test_error_propagation_through_ui()
-    def test_multi_user_session_handling()
-```
-
-## 🚀 Next Steps and Improvements
-
-Based on test failures, address these critical issues:
-
-1. **Enhance CSV Error Handling**: Improve pandas error handling for malformed CSV files
-2. **Fix Transaction Classification**: Correct revenue/expense classification logic  
-4. **Fix Tax Category Mapping**: Ensure tax expenses are properly categorized
-5. **Correct Prepaid Logic**: Fix cash flow impact detection for prepaid assets
-
