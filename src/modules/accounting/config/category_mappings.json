@@ -270,8 +270,11 @@
       "设备购置": "Investing Activities"
     },
     "financing_activities": {
+      "借款": "Financing Activities",
+      "贷款": "Financing Activities",
       "贷款收入": "Financing Activities",
       "还贷支出": "Financing Activities",
+      "还款": "Financing Activities",
       "股东投资": "Financing Activities",
       "分红支出": "Financing Activities"
     }

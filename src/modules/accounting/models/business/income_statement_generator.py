@@ -11,24 +11,70 @@ from ..domain.category import CategoryMapper, REVENUE_CATEGORIES
 
 
 class IncomeStatementGenerator:
-    """Generates income statements"""
-    
-    def __init__(self, category_mapper: CategoryMapper):
+    """Generates income statements from transaction data.
+
+    This class processes transaction records and categorizes them into revenue
+    and expense categories, calculating net income. It excludes non-operating
+    activities (investing and financing) and prepaid asset transactions.
+
+    Attributes:
+        category_mapper (CategoryMapper): Maps transaction categories to expense types.
+    """
+
+    def __init__(self, category_mapper: CategoryMapper) -> None:
+        """Initialize the income statement generator.
+
+        Args:
+            category_mapper: CategoryMapper instance for categorizing transactions.
+        """
         self.category_mapper = category_mapper
-    
-    def generate_statement(self, transactions: List[Transaction], entity_name: str) -> Dict:
-        """Generate income statement for given transactions"""
-        
+
+    def generate_statement(self, transactions: List[Transaction], entity_name: str) -> Dict[str, Any]:
+        """Generate income statement for given transactions.
+
+        Processes operating transactions and categorizes them into revenue and expenses.
+        Excludes investing/financing activities and prepaid asset transactions.
+
+        Args:
+            transactions: List of Transaction objects to process.
+            entity_name: Name of the entity (user or "Combined").
+
+        Returns:
+            Dictionary containing:
+                - Entity: Name of the entity
+                - Revenue: Dict of revenue categories and amounts
+                - Total Revenue: Sum of all revenue
+                - Expenses: Dict of expense categories and amounts
+                - Total Expenses: Sum of all expenses
+                - Net Income: Total Revenue - Total Expenses
+
+        Note:
+            - Transactions with zero amounts are automatically skipped
+            - Prepaid assets are excluded (don't affect current period income)
+            - Negative expense amounts represent reimbursements/reversals
+        """
+
         expense_summary = {}
         revenue_summary = {}
         total_expenses = 0
         total_revenue = 0
-        
+
         for transaction in transactions:
             # Skip transactions with zero amounts
             if transaction.amount == 0:
                 continue
-            
+
+            # Skip non-operating activities (investing and financing)
+            # Income statement should only include operating activities
+            # Check both debit and credit categories
+            debit_activity = self.category_mapper.get_cashflow_category(transaction.debit_category)
+            credit_activity = self.category_mapper.get_cashflow_category(transaction.credit_account)
+
+            if debit_activity in ['Investing Activities', 'Financing Activities']:
+                continue
+            if credit_activity in ['Investing Activities', 'Financing Activities']:
+                continue
+
             # Determine transaction type - prioritize actual analysis over stored attributes
             # since stored attributes may be defaults for old test data
             if transaction.debit_category in REVENUE_CATEGORIES and transaction.amount > 0:
@@ -39,11 +85,11 @@ class IncomeStatementGenerator:
                 transaction_type = "expense"
             else:
                 transaction_type = "expense"
-            
+
             # Skip prepaid asset transactions (they don't affect current period income)
             if transaction_type == "prepaid_asset":
                 continue
-                
+
             # Process revenue and expense transactions
             if transaction_type == "revenue":
                 # Revenue transaction
@@ -74,12 +120,29 @@ class IncomeStatementGenerator:
 
 
 def format_currency(amount: float) -> str:
-    """Format currency amount for display in CNY"""
+    """Format currency amount for display in CNY.
+
+    Args:
+        amount: Numeric amount to format.
+
+    Returns:
+        Formatted string with CNY symbol and comma separators (e.g., "¥1,000.00").
+    """
     return f"¥{amount:,.2f}"
 
 
-def print_income_statement(statement: Dict[str, Any]):
-    """Print formatted income statement"""
+def print_income_statement(statement: Dict[str, Any]) -> None:
+    """Print formatted income statement to console.
+
+    Args:
+        statement: Income statement dictionary from IncomeStatementGenerator.
+
+    Displays:
+        - Entity name
+        - Revenue section with category details and total
+        - Expenses section with category details and total
+        - Net Income
+    """
     print(f"\n{'='*50}")
     print(f"INCOME STATEMENT - {statement['Entity']}")
     print(f"{'='*50}")

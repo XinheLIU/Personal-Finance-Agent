@@ -18,6 +18,7 @@ from .components import (
     display_processing_results,
     display_error_message,
     show_user_selection,
+    display_cash_flow_statement,
     display_statement_table
 )
 
@@ -93,23 +94,30 @@ def show_income_cashflow_tab():
             if st.button("📈 Generate Income Statement & Cash Flow", type="primary"):
                 with st.spinner("Processing your financial data..."):
                     # Use NEW WORKFLOW: Process clean DataFrame directly
-                    income_statements, users = presenter.process_clean_dataframe_and_generate_statements(final_df)
-                    
-                    # TODO: Add cash flow generation when CashFlowPresenter supports DataFrame input
-                    cashflow_statements = {}
+                    # Now generates BOTH income and cash flow statements
+                    income_statements, cashflow_statements, users = presenter.process_clean_dataframe_and_generate_statements(final_df)
                     
                     # Display results (passive view)
                     display_processing_results(income_statements, "Income Statement")
-                    
+
                     # User selection for detailed view
                     selected_entity = show_user_selection(users, "income_user_select")
-                    
-                    # Display selected statement
-                    if selected_entity in income_statements:
-                        display_statement_table(
-                            income_statements[selected_entity], 
-                            f"Income Statement - {selected_entity}"
-                        )
+
+                    # Display both statements side-by-side
+                    col1, col2 = st.columns(2)
+
+                    with col1:
+                        st.subheader("📊 Income Statement")
+                        if selected_entity in income_statements:
+                            display_statement_table(
+                                income_statements[selected_entity],
+                                f"{selected_entity}"
+                            )
+
+                    with col2:
+                        st.subheader("💰 Cash Flow Statement")
+                        if selected_entity in cashflow_statements:
+                            display_cash_flow_statement(cashflow_statements[selected_entity])
                     
                     # Save to memory option
                     st.write("---")
@@ -129,13 +137,13 @@ def show_income_cashflow_tab():
                     with col2:
                         st.write("")  # Spacing
                         st.write("")  # Spacing
-                        if st.button("💾 Save Income Statement", type="primary", use_container_width=True):
+                        if st.button("💾 Save Both Statements", type="primary", use_container_width=True):
                             try:
                                 from ...core.report_storage import MonthlyReportStorage
                                 storage = MonthlyReportStorage()
 
                                 # Save each user's income statement
-                                success_count = 0
+                                income_success = 0
                                 for entity, statement in income_statements.items():
                                     metadata = {
                                         "entity": entity,
@@ -143,13 +151,24 @@ def show_income_cashflow_tab():
                                         "source": "web_upload"
                                     }
                                     if storage.save_statement(year_month, "income_statement", statement, metadata):
-                                        success_count += 1
+                                        income_success += 1
 
-                                if success_count > 0:
-                                    st.success(f"✅ Successfully saved {success_count} income statement(s) for {year_month}!")
-                                    st.info(f"📁 Saved to: data/accounting/reports/{year_month}/")
+                                # Save each user's cash flow statement
+                                cashflow_success = 0
+                                for entity, statement in cashflow_statements.items():
+                                    metadata = {
+                                        "entity": entity,
+                                        "generated_at": datetime.now().isoformat(),
+                                        "source": "web_upload"
+                                    }
+                                    if storage.save_statement(year_month, "cash_flow", statement, metadata):
+                                        cashflow_success += 1
+
+                                if income_success > 0 and cashflow_success > 0:
+                                    st.success(f"✅ Successfully saved {income_success} income statement(s) and {cashflow_success} cash flow statement(s) for {year_month}!")
+                                    st.info(f"📁 Saved to: data/accounting/monthly_reports/{year_month}/")
                                 else:
-                                    st.error("❌ Failed to save income statements")
+                                    st.warning(f"⚠️ Partial save: {income_success} income, {cashflow_success} cash flow statements saved")
 
                             except ValueError as e:
                                 st.error(f"❌ Invalid month format: {e}")

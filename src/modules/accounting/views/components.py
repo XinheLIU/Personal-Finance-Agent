@@ -304,3 +304,60 @@ def display_statement_table(statement_data: Dict, title: str):
     st.dataframe(df, use_container_width=True, hide_index=True)
 
 
+def display_cash_flow_statement(cashflow_data: Dict):
+    """
+    Display cash flow statement as formatted table.
+
+    Args:
+        cashflow_data: Cash flow statement data dictionary
+    """
+    display_data = []
+
+    # Operating Activities
+    if 'Operating Activities' in cashflow_data:
+        display_data.append(["**OPERATING ACTIVITIES**", ""])
+        for category, amount in cashflow_data['Operating Activities']['Details'].items():
+            display_data.append([f"  {category}", f"¥{amount:,.2f}"])
+        display_data.append([
+            "**Net Cash from Operating**",
+            f"¥{cashflow_data['Operating Activities']['Net Cash from Operating']:,.2f}"
+        ])
+        display_data.append(["", ""])
+
+    # Investing Activities
+    if 'Investing Activities' in cashflow_data:
+        display_data.append(["**INVESTING ACTIVITIES**", ""])
+        if cashflow_data['Investing Activities']['Details']:
+            for category, amount in cashflow_data['Investing Activities']['Details'].items():
+                display_data.append([f"  {category}", f"¥{amount:,.2f}"])
+        else:
+            display_data.append(["  No investing activities", "¥0.00"])
+        display_data.append([
+            "**Net Cash from Investing**",
+            f"¥{cashflow_data['Investing Activities']['Net Cash from Investing']:,.2f}"
+        ])
+        display_data.append(["", ""])
+
+    # Financing Activities
+    if 'Financing Activities' in cashflow_data:
+        display_data.append(["**FINANCING ACTIVITIES**", ""])
+        if cashflow_data['Financing Activities']['Details']:
+            for category, amount in cashflow_data['Financing Activities']['Details'].items():
+                display_data.append([f"  {category}", f"¥{amount:,.2f}"])
+        else:
+            display_data.append(["  No financing activities", "¥0.00"])
+        display_data.append([
+            "**Net Cash from Financing**",
+            f"¥{cashflow_data['Financing Activities']['Net Cash from Financing']:,.2f}"
+        ])
+        display_data.append(["", ""])
+
+    # Net Change in Cash
+    if 'Net Change in Cash' in cashflow_data:
+        display_data.append(["**NET CHANGE IN CASH**", f"¥{cashflow_data['Net Change in Cash']:,.2f}"])
+
+    # Display as dataframe
+    df = pd.DataFrame(display_data, columns=["Item", "Amount"])
+    st.dataframe(df, use_container_width=True, hide_index=True)
+
+

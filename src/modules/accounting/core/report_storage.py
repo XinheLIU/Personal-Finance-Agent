@@ -74,17 +74,20 @@ class MonthlyReportStorage:
             monthly_path = get_monthly_data_path(self.base_path, year_month)
             monthly_path.mkdir(parents=True, exist_ok=True)
             
+            # Get entity name from statement_data or metadata
+            entity = statement_data.get('Entity') or (metadata or {}).get('entity', 'Unknown')
+
             # Prepare statement with metadata
             statement_with_meta = {
                 "year_month": year_month,
                 "statement_type": statement_type,
                 "generated_at": datetime.now().isoformat(),
-                "data": statement_data,
+                "statement": statement_data,
                 "metadata": metadata or {}
             }
-            
-            # Save as JSON file
-            statement_path = monthly_path / f"{statement_type}.json"
+
+            # Save as JSON file with entity in filename
+            statement_path = monthly_path / f"{statement_type}_{entity}.json"
             with open(statement_path, 'w', encoding='utf-8') as f:
                 json.dump(statement_with_meta, f, cls=DecimalEncoder, indent=2, ensure_ascii=False)
             

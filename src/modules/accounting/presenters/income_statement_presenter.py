@@ -15,15 +15,17 @@ import pandas as pd
 from ..models.business.data_cleaner import DataCleaner, ValidationReport
 from ..models.business.transaction_processor import TransactionProcessor
 from ..models.business.income_statement_generator import IncomeStatementGenerator
+from ..models.business.cash_flow_generator import CashFlowStatementGenerator
 from ..models.domain.category import CategoryMapper
 
 
 class IncomeStatementPresenter:
     """Presenter for income statement generation workflow"""
-    
+
     def __init__(self):
         self.category_mapper = CategoryMapper()
         self.income_generator = IncomeStatementGenerator(self.category_mapper)
+        self.cashflow_generator = CashFlowStatementGenerator(self.category_mapper)
     
     def clean_and_validate_csv(self, csv_file_path: str) -> Tuple[pd.DataFrame, ValidationReport]:
         """
@@ -39,44 +41,57 @@ class IncomeStatementPresenter:
         cleaned_df, validation_report = cleaner.clean_and_validate()
         return cleaned_df, validation_report
     
-    def process_clean_dataframe_and_generate_statements(self, 
-                                                        cleaned_df: pd.DataFrame) -> Tuple[Dict, List[str]]:
+    def process_clean_dataframe_and_generate_statements(self,
+                                                        cleaned_df: pd.DataFrame) -> Tuple[Dict, Dict, List[str]]:
         """
-        Step 4-5 of workflow: Process CLEAN DataFrame and generate income statements.
-        
+        Step 4-5 of workflow: Process CLEAN DataFrame and generate BOTH income and cash flow statements.
+
         This assumes:
         - DataFrame has been cleaned by DataCleaner
         - User has reviewed and corrected any validation errors in the preview
-        
+
         Args:
             cleaned_df: Clean DataFrame from DataCleaner (possibly user-edited)
-            
+
         Returns:
-            Tuple of (income_statements_dict, users_list)
+            Tuple of (income_statements_dict, cashflow_statements_dict, users_list)
         """
         # Process transactions from clean DataFrame
         processor = TransactionProcessor(dataframe=cleaned_df)
         processor.load_transactions()
-        
+
         # Get users
         users = processor.get_all_users()
         if not users:
             raise ValueError("No users found in transaction data")
-        
-        # Generate statements for all users
+
+        # Generate income statements for all users
         income_statements = {}
-        
+
         # Individual user statements
         for user in users:
             user_transactions = processor.get_transactions_by_user(user)
             income_stmt = self.income_generator.generate_statement(user_transactions, user)
             income_statements[user] = income_stmt
-        
+
         # Combined statement
         combined_income = self.income_generator.generate_statement(processor.transactions, "Combined")
         income_statements["Combined"] = combined_income
-        
-        return income_statements, users
+
+        # Generate cash flow statements from same transactions
+        cashflow_statements = {}
+
+        # Individual user cash flow statements
+        for user in users:
+            user_transactions = processor.get_transactions_by_user(user)
+            cashflow_stmt = self.cashflow_generator.generate_statement(user_transactions, user)
+            cashflow_statements[user] = cashflow_stmt
+
+        # Combined cash flow statement
+        combined_cashflow = self.cashflow_generator.generate_statement(processor.transactions, "Combined")
+        cashflow_statements["Combined"] = combined_cashflow
+
+        return income_statements, cashflow_statements, users
     
     def process_transactions_and_generate_statements(self, tmp_file_path: str) -> Tuple[Dict, List[str]]:
         """

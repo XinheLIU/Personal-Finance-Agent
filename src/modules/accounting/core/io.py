@@ -131,3 +131,9 @@ def save_statement_csv(statement_data: dict, filename: str) -> None:
 def save_transposed_data(df: pd.DataFrame, filename: str) -> None:
     """Save transposed data to CSV"""
     df.fillna(0).to_csv(filename)
+
+
+# Re-export MonthlyReportStorage for convenience
+from .report_storage import MonthlyReportStorage
+
+__all__ = ['TransactionProcessor', 'MonthlyReportStorage', 'save_statement_csv', 'save_transposed_data']
