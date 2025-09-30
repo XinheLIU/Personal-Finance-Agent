@@ -80,13 +80,19 @@ def show_data_preview_editor(df: pd.DataFrame, editor_key: str) -> pd.DataFrame:
         # Show total amount if Amount column exists
         if 'Amount' in df.columns:
             try:
-                # Try to convert amounts to numeric, handling currency symbols
-                amount_strings = df['Amount'].astype(str)
-                # Remove currency symbols and commas
-                cleaned_amounts = amount_strings.str.replace(r'[¥,￥$]', '', regex=True)
-                # Convert to numeric, coercing errors to NaN
-                numeric_amounts = pd.to_numeric(cleaned_amounts, errors='coerce').fillna(0)
-                total_amount = float(numeric_amounts.sum())
+                # Check if Amount is already numeric (cleaned by DataCleaner) or needs cleaning
+                if df['Amount'].dtype in ['float64', 'int64', 'float32', 'int32']:
+                    # Already numeric - just sum it
+                    numeric_amounts = df['Amount'].fillna(0)
+                    total_amount = float(numeric_amounts.sum())
+                else:
+                    # Text data - need to clean currency symbols
+                    amount_strings = df['Amount'].astype(str)
+                    # Remove currency symbols and commas
+                    cleaned_amounts = amount_strings.str.replace(r'[¥,￥$]', '', regex=True)
+                    # Convert to numeric, coercing errors to NaN
+                    numeric_amounts = pd.to_numeric(cleaned_amounts, errors='coerce').fillna(0)
+                    total_amount = float(numeric_amounts.sum())
                 
                 # Format the display safely
                 if total_amount != 0:
@@ -109,11 +115,23 @@ def show_data_preview_editor(df: pd.DataFrame, editor_key: str) -> pd.DataFrame:
     column_config = {}
     for col in df.columns:
         if col == 'Amount' or 'amount' in col.lower():
-            # Use TextColumn for Amount to avoid format conflicts with currency symbols
-            column_config[col] = st.column_config.TextColumn(
-                col,
-                help="Monetary amount - use positive for income/assets, negative for expenses/liabilities (e.g. ¥1,000.00)"
-            )
+            # Check if Amount column is numeric (cleaned by DataCleaner) or text (raw data)
+            if df[col].dtype in ['float64', 'int64', 'float32', 'int32']:
+                # Use NumberColumn for cleaned numeric data
+                column_config[col] = st.column_config.NumberColumn(
+                    col,
+                    help="Monetary amount - positive for income/assets, negative for expenses/liabilities",
+                    min_value=None,  # Allow negative values
+                    max_value=None,
+                    step=0.01,
+                    format="%.2f"
+                )
+            else:
+                # Use TextColumn for raw data with currency symbols
+                column_config[col] = st.column_config.TextColumn(
+                    col,
+                    help="Monetary amount - use positive for income/assets, negative for expenses/liabilities (e.g. ¥1,000.00)"
+                )
         elif col == 'Description' or 'description' in col.lower():
             column_config[col] = st.column_config.TextColumn(
                 col,
@@ -286,25 +304,3 @@ def display_statement_table(statement_data: Dict, title: str):
     st.dataframe(df, use_container_width=True, hide_index=True)
 
 
-def show_export_options() -> Dict[str, bool]:
-    """
-    Display export options.
-    
-    Returns:
-        Dictionary of export format selections
-    """
-    st.write("**Export Options:**")
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        csv_export = st.checkbox("📄 CSV Export", value=True)
-    with col2:
-        json_export = st.checkbox("📋 JSON Export")
-    with col3:
-        excel_export = st.checkbox("📊 Excel Export")
-    
-    return {
-        'csv': csv_export,
-        'json': json_export,  
-        'excel': excel_export
-    }

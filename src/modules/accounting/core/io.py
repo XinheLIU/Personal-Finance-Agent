@@ -51,17 +51,24 @@ class TransactionProcessor:
         # Revenue transaction: Credit is a revenue account
         if credit in REVENUE_CATEGORIES:
             return "revenue", credit, cash_involved, abs(amount)
-        
+
+        # Reimbursement: Debit = Cash, Credit = Expense category (cash inflow reduces expense)
+        # Example: 报销 ¥1,509.00 Cash 通勤 (got cash back for transportation)
+        elif debit.lower() in ["cash", "现金"] and credit not in REVENUE_CATEGORIES:
+            # This is cash received that reduces a previous expense
+            # Treat as negative expense (expense reduction)
+            return "expense", credit, cash_involved, -abs(amount)
+
         # Prepaid expense being used (converted to expense): Debit = expense, Credit = prepaid
         elif "prepaid" in credit.lower() or "pre-paid" in credit.lower():
             # This converts prepaid asset to current expense - affects income statement only
             return "expense", debit, False, abs(amount)
-        
-        # Cash payment for future expense: Debit = prepaid, Credit = cash  
+
+        # Cash payment for future expense: Debit = prepaid, Credit = cash
         elif "prepaid" in debit.lower() or "pre-paid" in debit.lower():
             # This creates prepaid asset - affects cash flow only, not current income
             return "prepaid_asset", debit, cash_involved, abs(amount)
-        
+
         # Regular expense: Debit = expense, Credit = cash (or other account)
         else:
             return "expense", debit, cash_involved, abs(amount)

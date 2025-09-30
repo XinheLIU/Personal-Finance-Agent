@@ -16,8 +16,19 @@ from ..domain.category import REVENUE_CATEGORIES
 class TransactionProcessor:
     """Processes raw transaction data"""
     
-    def __init__(self, csv_file_path: str):
+    def __init__(self, csv_file_path: str = None, dataframe: pd.DataFrame = None):
+        """
+        Initialize with either a CSV file path or a clean DataFrame.
+        
+        Args:
+            csv_file_path: Path to CSV file (for backward compatibility)
+            dataframe: Pre-cleaned DataFrame from DataCleaner (preferred)
+        """
+        if csv_file_path is None and dataframe is None:
+            raise ValueError("Must provide either csv_file_path or dataframe")
+        
         self.csv_file_path = csv_file_path
+        self._dataframe = dataframe
         self.transactions: List[Transaction] = []
     
     def _clean_amount(self, amount_str: str) -> float:
@@ -43,15 +54,20 @@ class TransactionProcessor:
         2. Revenue account credited → revenue transaction  
         3. Expense account debited → expense transaction
         4. Asset/liability conversions → may not affect current income/cash flow
+        5. Reimbursements (Cash debited, Expense credited) → negative expense (expense reduction)
         """
-        
-        debit = debit.strip()
-        credit = credit.strip()
         cash_involved = credit.lower() in ["cash", "现金"] or debit.lower() in ["cash", "现金"]
         
         # Revenue transaction: Credit is a revenue account
         if credit in REVENUE_CATEGORIES:
             return "revenue", credit, cash_involved, abs(amount)
+        
+        # Reimbursement: Debit = Cash, Credit = Expense category (cash inflow reduces expense)
+        # Example: 报销 ¥1,509.00 Cash 通勤 (got cash back for transportation)
+        elif debit.lower() in ["cash", "现金"] and credit not in REVENUE_CATEGORIES:
+            # This is cash received that reduces a previous expense
+            # Treat as negative expense (expense reduction)
+            return "expense", credit, cash_involved, -abs(amount)
         
         # Prepaid expense being used (converted to expense): Debit = expense, Credit = prepaid
         elif "prepaid" in credit.lower() or "pre-paid" in credit.lower():
@@ -80,36 +96,46 @@ class TransactionProcessor:
             raise ValueError("CSV file contains no data rows")
 
     def load_transactions(self) -> None:
-        """Load transactions from CSV file with proper Credit/Debit handling"""
+        """
+        Load transactions from clean DataFrame into Transaction domain objects.
+        
+        Expects DataFrame to be already cleaned and validated by DataCleaner.
+        For backward compatibility, also supports loading directly from CSV.
+        """
         try:
-            # Read CSV with encoding handling for BOM characters
-            df = pd.read_csv(self.csv_file_path, encoding='utf-8-sig')
+            # Load DataFrame from either source
+            if self._dataframe is not None:
+                df = self._dataframe
+            elif self.csv_file_path:
+                # Backward compatibility: Load from CSV
+                # NOTE: Ideally, this should go through DataCleaner first
+                df = pd.read_csv(self.csv_file_path, encoding='utf-8-sig')
+                df.columns = df.columns.str.strip()
+                df = df.dropna(how='all')
+            else:
+                return
             
             # Handle empty dataframes
             if df.empty:
                 return
             
-            # Clean column names (remove any extra spaces and BOM characters)
-            df.columns = df.columns.str.strip()
-            
-            # Remove completely empty rows
-            df = df.dropna(how='all')
-            
-            # Validate data structure
-            self._validate_csv_data(df)
-            
             for _, row in df.iterrows():
-                # Convert all fields to strings safely to prevent type errors
+                # Extract fields (data should already be clean from DataCleaner)
                 description = str(row.get('Description', '')).strip() if pd.notna(row.get('Description')) else ''
                 debit = str(row.get('Debit', '')).strip() if pd.notna(row.get('Debit')) else ''
                 credit = str(row.get('Credit', '')).strip() if pd.notna(row.get('Credit')) else ''
                 user = str(row.get('User', '')).strip() if pd.notna(row.get('User')) else ''
                 
-                # Skip rows with no description or empty essential fields
+                # Skip rows with no essential data
                 if not description and not debit and not credit:
                     continue
                 
-                raw_amount = self._clean_amount(row.get('Amount', 0))
+                # Get amount (should already be numeric from DataCleaner)
+                try:
+                    raw_amount = float(row.get('Amount', 0)) if pd.notna(row.get('Amount')) else 0.0
+                except (ValueError, TypeError):
+                    # Fallback to cleaning if data came from CSV directly
+                    raw_amount = self._clean_amount(row.get('Amount', 0))
                 
                 # Skip transactions with zero amounts
                 if raw_amount == 0:
@@ -134,9 +160,6 @@ class TransactionProcessor:
                 
                 self.transactions.append(transaction)
                 
-        except pd.errors.EmptyDataError:
-            # Handle empty CSV files gracefully
-            return
         except Exception as e:
             raise Exception(f"Error loading transactions: {e}")
     

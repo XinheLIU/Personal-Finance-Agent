@@ -12,14 +12,13 @@ from ..presenters.transaction_presenter import TransactionPresenter
 from ..presenters.income_statement_presenter import IncomeStatementPresenter
 from ..presenters.cash_flow_presenter import CashFlowPresenter
 from .components import (
-    handle_csv_upload, 
+    handle_csv_upload,
     show_csv_help,
     show_data_preview_editor,
     display_processing_results,
     display_error_message,
     show_user_selection,
-    display_statement_table,
-    show_export_options
+    display_statement_table
 )
 
 
@@ -45,33 +44,59 @@ def show_income_cashflow_tab():
     
     if tmp_file_path:
         try:
-            # Load and preview data for user editing
-            import pandas as pd
-            uploaded_df = pd.read_csv(tmp_file_path)
+            # NEW WORKFLOW: Clean and validate data FIRST
+            presenter = IncomeStatementPresenter()
+            cleaned_df, validation_report = presenter.clean_and_validate_csv(tmp_file_path)
             
             st.subheader("📊 Review and Edit Your Data")
-            st.info("📝 You can review and edit your uploaded data below before generating statements. Any changes will be applied to the final results.")
             
-            # Show data preview and editor
-            edited_df = show_data_preview_editor(uploaded_df, "income_data_editor")
+            # Show cleaning summary
+            if validation_report.cleaning_actions:
+                st.success("🧹 **Data Cleaning Complete**")
+                st.write(validation_report.get_cleaning_summary())
+                
+                with st.expander("🔍 View Cleaning Details", expanded=False):
+                    for action in validation_report.cleaning_actions:
+                        if action.count > 0:
+                            st.write(f"• **{action.description}**: {action.count} items")
+                            if action.details:
+                                st.write(f"  _{action.details}_")
             
-            # Check if user made edits
-            if not edited_df.equals(uploaded_df):
-                st.success("✅ Data has been modified! Your changes will be used for processing.")
-                # Save edited data to temporary file
-                import tempfile
-                with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.csv') as tmp_file:
-                    edited_df.to_csv(tmp_file.name, index=False)
-                    processed_file_path = tmp_file.name
+            # Show validation results
+            if validation_report.has_errors():
+                st.error(f"❌ **Data Validation Issues Found**")
+                st.write(validation_report.get_summary())
+                
+                with st.expander("🔍 View Validation Errors", expanded=True):
+                    for error in validation_report.errors:
+                        st.write(f"• {error.message}")
+                
+                st.warning("⚠️ Please fix the validation errors above before proceeding. You can edit the data below to correct these issues.")
             else:
-                processed_file_path = tmp_file_path
+                st.success("✅ **Data validation passed!** Your data is clean and ready for processing.")
+            
+            st.info("📝 **Clean Data Preview**: Review your cleaned data below. You can make additional edits before generating statements.")
+            
+            # Show CLEAN data preview and editor (not raw data!)
+            edited_df = show_data_preview_editor(cleaned_df, "income_data_editor")
+            
+            # Check if user made edits to the CLEAN data
+            if not edited_df.equals(cleaned_df):
+                st.success("✅ Data has been modified! Your changes will be used for processing.")
+                # Use edited DataFrame directly
+                final_df = edited_df
+            else:
+                # Use clean DataFrame (no user edits)
+                final_df = cleaned_df
             
             # Process data with user edits (if any)
             if st.button("📈 Generate Income Statement & Cash Flow", type="primary"):
                 with st.spinner("Processing your financial data..."):
-                    # Use presenter to handle business logic
-                    presenter = TransactionPresenter()
-                    income_statements, cashflow_statements, users = presenter.process_transaction_statements(processed_file_path)
+                    # Use NEW WORKFLOW: Process clean DataFrame directly
+                    income_statements, users = presenter.process_clean_dataframe_and_generate_statements(final_df)
+                    
+                    # TODO: Add cash flow generation when CashFlowPresenter supports DataFrame input
+                    cashflow_statements = {}
                     
                     # Display results (passive view)
                     display_processing_results(income_statements, "Income Statement")
@@ -86,11 +111,52 @@ def show_income_cashflow_tab():
                             f"Income Statement - {selected_entity}"
                         )
                     
-                    # Export options
-                    export_options = show_export_options()
-                    
-                    if any(export_options.values()):
-                        st.info("Export functionality will be implemented by presenter layer")
+                    # Save to memory option
+                    st.write("---")
+                    st.write("**💾 Save to Memory:**")
+
+                    col1, col2 = st.columns([2, 1])
+                    with col1:
+                        # Get current year-month from the data or use current date
+                        from datetime import datetime
+                        default_month = datetime.now().strftime("%Y-%m")
+                        year_month = st.text_input(
+                            "Month (YYYY-MM format)",
+                            value=default_month,
+                            help="Specify which month this income statement belongs to"
+                        )
+
+                    with col2:
+                        st.write("")  # Spacing
+                        st.write("")  # Spacing
+                        if st.button("💾 Save Income Statement", type="primary", use_container_width=True):
+                            try:
+                                from ...core.report_storage import MonthlyReportStorage
+                                storage = MonthlyReportStorage()
+
+                                # Save each user's income statement
+                                success_count = 0
+                                for entity, statement in income_statements.items():
+                                    metadata = {
+                                        "entity": entity,
+                                        "generated_at": datetime.now().isoformat(),
+                                        "source": "web_upload"
+                                    }
+                                    if storage.save_statement(year_month, "income_statement", statement, metadata):
+                                        success_count += 1
+
+                                if success_count > 0:
+                                    st.success(f"✅ Successfully saved {success_count} income statement(s) for {year_month}!")
+                                    st.info(f"📁 Saved to: data/accounting/reports/{year_month}/")
+                                else:
+                                    st.error("❌ Failed to save income statements")
+
+                            except ValueError as e:
+                                st.error(f"❌ Invalid month format: {e}")
+                            except Exception as e:
+                                st.error(f"❌ Error saving to memory: {e}")
+                                with st.expander("📋 Technical Details"):
+                                    st.code(str(e))
                 
         except TypeError as e:
             if "can only concatenate str" in str(e):
@@ -132,26 +198,43 @@ def show_balance_sheet_tab():
     
     if tmp_file_path:
         try:
-            # Load and preview data for user editing
+            # NEW WORKFLOW: Clean and validate data FIRST (when balance sheet presenter supports it)
+            # For now, use basic cleaning until BalanceSheetPresenter is implemented
             import pandas as pd
-            uploaded_df = pd.read_csv(tmp_file_path)
+            from ..models.business.data_cleaner import DataCleaner
+            
+            # Use DataCleaner for basic cleaning
+            cleaner = DataCleaner(csv_file_path=tmp_file_path)
+            cleaned_df, validation_report = cleaner.clean_and_validate()
             
             st.subheader("📊 Review and Edit Your Data")
-            st.info("📝 You can review and edit your uploaded balance sheet data below before generating statements. Any changes will be applied to the final results.")
             
-            # Show data preview and editor
-            edited_df = show_data_preview_editor(uploaded_df, "balance_data_editor")
-            
-            # Check if user made edits
-            if not edited_df.equals(uploaded_df):
-                st.success("✅ Data has been modified! Your changes will be used for processing.")
-                # Save edited data to temporary file
-                import tempfile
-                with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.csv') as tmp_file:
-                    edited_df.to_csv(tmp_file.name, index=False)
-                    processed_file_path = tmp_file.name
+            # Show validation results
+            if validation_report.has_errors():
+                st.error(f"❌ **Data Validation Issues Found**")
+                st.write(validation_report.get_summary())
+                
+                with st.expander("🔍 View Validation Errors", expanded=True):
+                    for error in validation_report.errors:
+                        st.write(f"• {error.message}")
+                
+                st.warning("⚠️ Please fix the validation errors above before proceeding.")
             else:
-                processed_file_path = tmp_file_path
+                st.success("✅ **Data validation passed!** Your data is clean and ready for processing.")
+            
+            st.info("📝 **Clean Data Preview**: Empty rows and currency symbols have been automatically cleaned. You can review and edit your balance sheet data below before generating statements.")
+            
+            # Show CLEAN data preview and editor
+            edited_df = show_data_preview_editor(cleaned_df, "balance_data_editor")
+            
+            # Check if user made edits to the CLEAN data
+            if not edited_df.equals(cleaned_df):
+                st.success("✅ Data has been modified! Your changes will be used for processing.")
+                # Use edited DataFrame directly
+                final_df = edited_df
+            else:
+                # Use clean DataFrame (no user edits)
+                final_df = cleaned_df
             
             # Process data with user edits (if any)
             if st.button("📊 Generate Balance Sheet", type="primary"):

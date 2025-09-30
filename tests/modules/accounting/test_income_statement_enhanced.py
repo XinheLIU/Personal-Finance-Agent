@@ -57,6 +57,111 @@ class TestIncomeStatementEnhanced:
         assert statement["Total Expenses"] == 2500.0  # 2000 + 500 (mapped categories)
         assert statement["Net Income"] == 7500.0  # 10000 - 2500
 
+    def test_reimbursement_expense_reduction(self):
+        """Test that reimbursements correctly reduce expenses (negative amounts)"""
+        # Scenario: Transportation expenses with a reimbursement
+        # Expected: Net transportation = 1219.55 + 1725 - 1509 = 1435.55
+        
+        # Create transactions matching the user's example
+        transactions = [
+            Transaction("交通", 1219.55, "通勤", "Cash", "User1"),
+            Transaction("火车票", 1725.0, "通勤", "Cash", "User1"),
+            Transaction("报销", -1509.0, "通勤", "通勤", "User1"),  # Negative amount = expense reduction
+        ]
+        
+        # Set transaction types
+        transactions[0].transaction_type = "expense"
+        transactions[1].transaction_type = "expense"
+        transactions[2].transaction_type = "expense"  # Reimbursement is also expense type, but negative
+        
+        statement = self.generator.generate_statement(transactions, "User1")
+        
+        # Check that Transportation category exists and has correct net amount
+        assert "Transportation" in statement["Expenses"]
+        assert abs(statement["Expenses"]["Transportation"] - 1435.55) < 0.01  # Float comparison
+        
+        # Check totals
+        assert abs(statement["Total Expenses"] - 1435.55) < 0.01
+        
+        # Ensure no "Other Expenses" category was created
+        assert "Other Expenses" not in statement["Expenses"]
+    
+    def test_full_workflow_with_reimbursement_from_csv(self):
+        """Test full workflow from CSV with reimbursement transactions"""
+        # Create a temporary CSV with the user's exact example data
+        csv_content = """Description,Amount,Debit,Credit,User
+交通,¥1219.55,通勤,Cash,User1
+火车票,¥1725.00,通勤,Cash,User1
+报销,¥1509.00,Cash,通勤,User1"""
+        
+        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.csv', encoding='utf-8') as f:
+            f.write(csv_content)
+            csv_path = f.name
+        
+        try:
+            # Load transactions through processor
+            processor = TransactionProcessor(csv_path)
+            processor.load_transactions()
+            
+            # Verify we loaded 3 transactions
+            assert len(processor.transactions) == 3
+            
+            # Verify third transaction has negative amount (reimbursement)
+            reimbursement = processor.transactions[2]
+            assert reimbursement.description == "报销"
+            assert reimbursement.amount < 0  # Should be negative!
+            assert reimbursement.debit_category == "通勤"
+            
+            # Generate income statement
+            statement = self.generator.generate_statement(processor.transactions, "User1")
+            
+            # Verify Transportation expense is correctly netted
+            assert "Transportation" in statement["Expenses"]
+            expected_net = 1219.55 + 1725.0 - 1509.0
+            assert abs(statement["Expenses"]["Transportation"] - expected_net) < 0.01
+            
+            # Verify no Other Expenses category
+            assert "Other Expenses" not in statement["Expenses"]
+            
+        finally:
+            # Cleanup
+            os.unlink(csv_path)
+    
+    def test_multiple_reimbursements_same_category(self):
+        """Test multiple reimbursements for the same expense category"""
+        transactions = [
+            Transaction("Meal 1", 100.0, "餐饮", "Cash", "User1"),
+            Transaction("Meal 2", 150.0, "餐饮", "Cash", "User1"),
+            Transaction("Refund 1", -50.0, "餐饮", "餐饮", "User1"),  # Partial refund
+            Transaction("Refund 2", -30.0, "餐饮", "餐饮", "User1"),  # Another refund
+        ]
+        
+        for t in transactions:
+            t.transaction_type = "expense"
+        
+        statement = self.generator.generate_statement(transactions, "User1")
+        
+        # Net: 100 + 150 - 50 - 30 = 170
+        assert "Food & Dining" in statement["Expenses"]
+        assert abs(statement["Expenses"]["Food & Dining"] - 170.0) < 0.01
+    
+    def test_full_reimbursement_results_in_zero_expense(self):
+        """Test that a full reimbursement results in zero net expense"""
+        transactions = [
+            Transaction("Travel", 1000.0, "旅行", "Cash", "User1"),
+            Transaction("Full Refund", -1000.0, "旅行", "旅行", "User1"),
+        ]
+        
+        for t in transactions:
+            t.transaction_type = "expense"
+        
+        statement = self.generator.generate_statement(transactions, "User1")
+        
+        # Should have Travel & Entertainment category with 0 amount
+        assert "Travel & Entertainment" in statement["Expenses"]
+        assert abs(statement["Expenses"]["Travel & Entertainment"]) < 0.01  # Essentially zero
+        assert abs(statement["Total Expenses"]) < 0.01
+
 
 class TestTaxExpenseSeparation:
     """Test tax expense separation and categorization"""

@@ -50,9 +50,11 @@ class IncomeStatementGenerator:
                 revenue_summary[category] = revenue_summary.get(category, 0) + amount
                 total_revenue += amount
             elif transaction_type == "expense":
-                # Expense transaction (including expenses from prepaid)
+                # Expense transaction (including expenses from prepaid and reimbursements)
                 category = self.category_mapper.get_expense_category(transaction.debit_category)
-                amount = abs(transaction.amount)  # Ensure positive for income statement
+                # Keep sign! Negative amounts = expense reductions (reimbursements)
+                # Positive amounts = regular expenses
+                amount = transaction.amount  # DO NOT use abs() - preserve sign!
                 expense_summary[category] = expense_summary.get(category, 0) + amount
                 total_expenses += amount
         
