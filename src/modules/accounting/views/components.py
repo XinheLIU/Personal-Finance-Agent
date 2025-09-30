@@ -52,6 +52,62 @@ def show_csv_help(format_info: Dict[str, str]):
             st.write(f"• **{column}**: {description}")
 
 
+def display_balance_sheet(statement_data: Dict[str, Any]):
+    """
+    Display balance sheet as formatted table with CNY/USD columns.
+    """
+    if not statement_data or not isinstance(statement_data, dict):
+        st.info("No balance sheet data to display.")
+        return
+
+    # Build display rows
+    rows = []
+    rows.append(["ASSETS", "CNY", "USD"])
+
+    if 'Current Assets' in statement_data:
+        current = statement_data['Current Assets']
+        rows.append(["Current Assets", "", ""])
+        for key in ["Cash", "Investments", "Other"]:
+            if key in current and isinstance(current[key], dict):
+                rows.append([
+                    f"  {key}",
+                    f"¥{current[key].get('CNY', 0.0):,.2f}",
+                    f"${current[key].get('USD', 0.0):,.2f}",
+                ])
+        if 'Total Current Assets' in current:
+            t = current['Total Current Assets']
+            rows.append([
+                "  Total Current Assets",
+                f"¥{t.get('CNY', 0.0):,.2f}",
+                f"${t.get('USD', 0.0):,.2f}",
+            ])
+
+    if 'Fixed Assets' in statement_data:
+        fixed = statement_data['Fixed Assets']
+        rows.append(["Fixed Assets", "", ""])
+        if 'Long-term Investments' in fixed:
+            li = fixed['Long-term Investments']
+            rows.append([
+                "  Long-term Investments",
+                f"¥{li.get('CNY', 0.0):,.2f}",
+                f"${li.get('USD', 0.0):,.2f}",
+            ])
+        if 'Total Fixed Assets' in fixed:
+            t = fixed['Total Fixed Assets']
+            rows.append([
+                "  Total Fixed Assets",
+                f"¥{t.get('CNY', 0.0):,.2f}",
+                f"${t.get('USD', 0.0):,.2f}",
+            ])
+
+    if 'Total Assets' in statement_data:
+        ta = statement_data['Total Assets']
+        rows.append(["TOTAL ASSETS", f"¥{ta.get('CNY', 0.0):,.2f}", f"${ta.get('USD', 0.0):,.2f}"])
+
+    df = pd.DataFrame(rows, columns=["Item", "CNY", "USD"])
+    st.dataframe(df, use_container_width=True, hide_index=True)
+
+
 def show_data_preview_editor(df: pd.DataFrame, editor_key: str) -> pd.DataFrame:
     """
     Display enhanced data preview and editor with better user experience.

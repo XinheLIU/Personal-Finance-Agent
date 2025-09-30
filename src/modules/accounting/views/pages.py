@@ -11,6 +11,7 @@ from typing import Optional
 from ..presenters.transaction_presenter import TransactionPresenter
 from ..presenters.income_statement_presenter import IncomeStatementPresenter
 from ..presenters.cash_flow_presenter import CashFlowPresenter
+from ..presenters.balance_sheet_presenter import BalanceSheetPresenter
 from .components import (
     handle_csv_upload,
     show_csv_help,
@@ -198,16 +199,14 @@ def show_balance_sheet_tab():
     """Display the balance sheet generation tab (passive view)"""
     st.header("🏦 Balance Sheet Generation")
     
-    # CSV format help
+    # CSV format help expected by generator
     format_info = {
-        "Asset/Liability": "Name of asset or liability",
-        "Type": "Asset, Liability, or Equity",
-        "Amount": "Current balance amount",
-        "User": "User identifier for multi-user support"
+        "Account Name": "Name of the account (e.g., 现金账户, 股票投资)",
+        "Account Type": "One of: Cash CNY, Cash USD, Investment, Long-Term Investment",
+        "CNY": "Amount in Chinese Yuan (e.g., ¥25,000.00 or 25000.00)",
+        "USD": "Amount in US Dollars (e.g., $3,500.00 or 3500.00)"
     }
     show_csv_help(format_info)
-    
-    st.info("Balance sheet functionality will be implemented with presenter pattern")
     
     # File upload placeholder
     tmp_file_path = handle_csv_upload(
@@ -217,14 +216,8 @@ def show_balance_sheet_tab():
     
     if tmp_file_path:
         try:
-            # NEW WORKFLOW: Clean and validate data FIRST (when balance sheet presenter supports it)
-            # For now, use basic cleaning until BalanceSheetPresenter is implemented
-            import pandas as pd
-            from ..models.business.data_cleaner import DataCleaner
-            
-            # Use DataCleaner for basic cleaning
-            cleaner = DataCleaner(csv_file_path=tmp_file_path)
-            cleaned_df, validation_report = cleaner.clean_and_validate()
+            presenter = BalanceSheetPresenter()
+            cleaned_df, validation_report = presenter.clean_and_validate_csv(tmp_file_path)
             
             st.subheader("📊 Review and Edit Your Data")
             
@@ -241,7 +234,7 @@ def show_balance_sheet_tab():
             else:
                 st.success("✅ **Data validation passed!** Your data is clean and ready for processing.")
             
-            st.info("📝 **Clean Data Preview**: Empty rows and currency symbols have been automatically cleaned. You can review and edit your balance sheet data below before generating statements.")
+            st.info("📝 **Clean Data Preview**: Empty rows/columns removed, whitespace normalized, and CNY/USD currency symbols cleaned. You can edit below before generating the statement.")
             
             # Show CLEAN data preview and editor
             edited_df = show_data_preview_editor(cleaned_df, "balance_data_editor")
@@ -258,8 +251,41 @@ def show_balance_sheet_tab():
             # Process data with user edits (if any)
             if st.button("📊 Generate Balance Sheet", type="primary"):
                 with st.spinner("Processing your balance sheet data..."):
-                    st.info("Balance sheet generation functionality will be implemented with presenter pattern")
-                    st.success(f"✅ Balance sheet processing will use: {processed_file_path}")
+                    statement = presenter.process_clean_dataframe_and_generate_statement(final_df)
+                    st.success("✅ Balance sheet generated!")
+                    from .components import display_balance_sheet
+                    display_balance_sheet(statement)
+
+                    # Save option
+                    st.write("---")
+                    st.write("**💾 Save to Memory:**")
+                    from datetime import datetime
+                    default_month = datetime.now().strftime("%Y-%m")
+                    year_month = st.text_input(
+                        "Month (YYYY-MM format)",
+                        value=default_month,
+                        help="Specify which month this balance sheet belongs to"
+                    )
+                    entity = st.text_input("Entity (for filename)", value="Combined")
+                    if st.button("💾 Save Balance Sheet", type="primary", use_container_width=True):
+                        try:
+                            from ...core.report_storage import MonthlyReportStorage
+                            storage = MonthlyReportStorage()
+                            metadata = {
+                                "entity": entity,
+                                "generated_at": datetime.now().isoformat(),
+                                "source": "web_upload"
+                            }
+                            ok = storage.save_statement(year_month, "balance_sheet", statement, metadata)
+                            if ok:
+                                st.success(f"✅ Saved balance sheet for {year_month} as balance_sheet_{entity}.json")
+                                st.info(f"📁 Folder: data/accounting/monthly_reports/{year_month}/")
+                            else:
+                                st.warning("⚠️ Failed to save balance sheet.")
+                        except ValueError as e:
+                            st.error(f"❌ Invalid month format: {e}")
+                        except Exception as e:
+                            display_error_message(e, "Save Balance Sheet")
         
         except Exception as e:
             display_error_message(e, "Balance Sheet Generation")
