@@ -47,6 +47,24 @@ The goal is to help you maintain a big picture as well as the progress of the ta
 
 ### Project info
 
+### Database Structure
+
+The project's data is stored in the `data/` directory, which is organized as follows:
+
+*   **`raw/`**: Contains raw, unprocessed financial data.
+    *   `pe/`: Price-to-Earnings ratio data.
+        *   `manual/`: For manual PE data updates. Contains a `README.md` with file naming conventions and format.
+    *   `price/`: Price data.
+    *   `yield/`: Yield data.
+*   **`processed/`**: Contains processed data for different investment strategies. The directories are named after the strategies (e.g., `60_40`, `all_weather`).
+*   **`accounting/`**: Contains data for the Professional Accounting Module.
+    *   `csv_uploads/`: For temporary uploaded CSV files.
+    *   `monthly_reports/`: Contains generated financial statements (income statements, cash flow statements, balance sheets) in JSON format, organized by month (`YYYY-MM`).
+    *   `monthly_data/`: Contains monthly comparison data.
+    *   `parquet/`: For optimized data storage.
+    *   A `README.md` file provides a detailed explanation of the directory structure, file formats, usage, and architecture of the accounting module.
+*   **`accounts/`**: Contains account holdings information in `holdings.json`.
+
 
 # Scratchpad
 

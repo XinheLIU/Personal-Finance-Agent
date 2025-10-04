@@ -10,7 +10,7 @@ Expected columns:
 """
 
 from dataclasses import dataclass
-from typing import Tuple, List
+from typing import Tuple, List, Dict
 import logging
 import re
 import pandas as pd
@@ -34,6 +34,33 @@ class BalanceSheetSchema:
     required_columns: List[str] = (
         'Account Name', 'Account Type', 'CNY', 'USD'
     )
+    # Column name variations that should be normalized
+    column_mappings: Dict[str, str] = None
+    
+    def __post_init__(self):
+        if self.column_mappings is None:
+            self.column_mappings = {
+                # Account Name variations
+                'Account': 'Account Name',
+                'account': 'Account Name',
+                'Account Name': 'Account Name',
+                'account name': 'Account Name',
+                'Name': 'Account Name',
+                'name': 'Account Name',
+                
+                # Account Type variations  
+                'Account Type': 'Account Type',
+                'account type': 'Account Type',
+                'Type': 'Account Type',
+                'type': 'Account Type',
+                'AccountType': 'Account Type',
+                
+                # Currency columns are usually consistent
+                'CNY': 'CNY',
+                'cny': 'CNY',
+                'USD': 'USD',
+                'usd': 'USD'
+            }
 
 
 class BalanceSheetDataCleaner:
@@ -92,20 +119,39 @@ class BalanceSheetDataCleaner:
             )
         return df
 
-    def _strip_whitespace(self, df: pd.DataFrame) -> pd.DataFrame:
-        # Columns
+    def _normalize_column_names(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Normalize column names to standard schema."""
+        schema = BalanceSheetSchema()
         original_columns = df.columns.tolist()
-        df.columns = df.columns.str.strip()
-        if original_columns != df.columns.tolist():
+        new_columns = []
+        normalized_count = 0
+        
+        for col in df.columns:
+            stripped_col = str(col).strip()
+            if stripped_col in schema.column_mappings:
+                normalized_col = schema.column_mappings[stripped_col]
+                new_columns.append(normalized_col)
+                if normalized_col != stripped_col:
+                    normalized_count += 1
+            else:
+                new_columns.append(stripped_col)
+        
+        df.columns = new_columns
+        
+        if normalized_count > 0:
             self.validation_report.cleaning_actions.append(
                 CleaningAction(
-                    action_type="clean_column_names",
-                    description="Cleaned column names",
-                    count=1,
-                    details="Removed leading/trailing whitespace from headers",
+                    action_type="normalize_column_names",
+                    description="Normalized column names",
+                    count=normalized_count,
+                    details=f"Mapped variations like 'Account' → 'Account Name'",
                 )
             )
-        # String values
+        
+        return df
+
+    def _strip_whitespace(self, df: pd.DataFrame) -> pd.DataFrame:
+        # String values only (columns already handled in _normalize_column_names)
         whitespace_cleaned = 0
         for col in df.columns:
             if df[col].dtype == 'object':
@@ -245,6 +291,7 @@ class BalanceSheetDataCleaner:
 
         df = self._raw_df.copy()
         df = self._remove_empty_rows_and_columns(df)
+        df = self._normalize_column_names(df)  # Normalize column names before validation
         df = self._strip_whitespace(df)
         self._validate_required_columns(df)
 

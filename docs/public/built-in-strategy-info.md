@@ -45,6 +45,48 @@ Here is an overview of three popular investment portfolio strategies and how the
   - 20% Real Estate (VNQ)
 - **Note:** True alternatives (like private equity) are hard to replicate with ETFs, but this mix follows Swensen's diversification principles.
 
+### 4. Customized Strategy 
+
+- **A-Share Allocation**
+  - CSI 300: Allocate `20% × (1 - 10-year PE percentile)`
+  - CSI 500: Allocate `20% × (1 - 10-year PE percentile)`
+  - *Example:* If CSI 300's 10-year PE percentile is 50%, allocate 7.5% of assets
+- **Hong Kong Stock Allocation**
+  - Hang Seng Tech: Allocate `12% × (1 - 10-year PE percentile)`
+- **US Stock Allocation**
+  - S&P 500: Allocate `17% × (1 - 20-year PE percentile)`
+  - NASDAQ 100: Allocate `15% × (1 - 20-year PE percentile)`
+  - *Note:* If 20-year data is unavailable, use the longest available historical data
+- **Bond Allocation**
+  - TLT Allocation:
+    - Reference: US 10-year Treasury yield 20-year distribution position
+    - Formula: `15% × (Treasury yield 20-year distribution)`
+    - *Example:* If Treasury yield 20-year distribution is 80%, allocate 9.6% of assets
+- **US Dollar Money Market Allocation**
+  - Condition: US 10-year Treasury yield ≥ 4%
+  - Allocation ratio: Equal to Treasury yield
+  - *Example:* Allocate 4.5% when yield is 4.5%; no allocation when yield is 3%
+- **Other Asset Allocation**
+  - Gold: Fixed allocation 10%
+- **Supplementary Rules**
+  - Remaining funds allocation: Allocate to E Fund China Bond
+  - Rebalancing trigger: When any asset's actual allocation differs from target by more than 1%
+
+## Actual Assets to Trade
+
+| Allocation Type         | Index / Benchmark         | Tradable Products (Examples)                |
+|------------------------|--------------------------|---------------------------------------------|
+| A-Share: CSI 300       | CSI 300                  | 510300 (CN)                                 |
+| A-Share: CSI 500       | CSI 500                  | 110020 (CN)                                 |
+| HK: Hang Seng Tech     | Hang Seng Tech Index     | KTEC (US)                                   |
+| US: S&P 500            | S&P 500                  | VOO (US)                                    |
+| US: NASDAQ 100         | NASDAQ 100               | QQQ (US)                                    |
+| Bonds: US Treasury     | 10Y Yield → Long Bonds   | TLT (US)                                    |
+| USD Money Market       | 10Y Yield ≥ 4%           | SHV (US)                                    |
+| Gold                   | Fixed 10%                | GLD,(US)                                    |
+| Remaining Funds        | E Fund China Bond        | 110038 (CN)                                 |
+
+
 ---
 
 ## Comprehensive ETF Options by Asset Class

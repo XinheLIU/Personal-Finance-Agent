@@ -1,4 +1,3 @@
-```markdown
 ---
 name: tdd-workflow
 description: 3-agent TDD workflow with human approval gates. Usage: /tdd-workflow <description> OR /tdd-workflow --doc <path>

@@ -201,8 +201,8 @@ def show_balance_sheet_tab():
     
     # CSV format help expected by generator
     format_info = {
-        "Account Name": "Name of the account (e.g., 现金账户, 股票投资)",
-        "Account Type": "One of: Cash CNY, Cash USD, Investment, Long-Term Investment",
+        "Account Name": "Name of the account (e.g., 现金账户, 股票投资). 'Account' also accepted.",
+        "Account Type": "One of: Cash CNY, Cash USD, Investment, Long-Term Investment. 'Type' also accepted.",
         "CNY": "Amount in Chinese Yuan (e.g., ¥25,000.00 or 25000.00)",
         "USD": "Amount in US Dollars (e.g., $3,500.00 or 3500.00)"
     }

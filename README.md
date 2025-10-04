@@ -148,3 +148,16 @@ System and asset configurations are managed in the `config/` directory.
 - **`config/system.py`**: Contains system-wide settings like initial capital and commission rates.
 - **`config/assets.py`**: Defines the assets available for trading and their associated data source tickers.
 - **`config/sectors.py`**: Professional sector classification mapping assets to 9 institutional sectors for attribution analysis.
+
+## Documentation
+
+### User Guide (Public)
+- **Built-in Strategies**: [./docs/public/built-in-strategy-info.md](./docs/public/built-in-strategy-info.md)
+- **Performance Attribution Guide**: [./docs/public/performance-attribution-guide.md](./docs/public/performance-attribution-guide.md)
+- **Manual PE Data Guide**: [./docs/public/MANUAL_PE_DATA_GUIDE.md](./docs/public/MANUAL_PE_DATA_GUIDE.md)
+- **Data Sources**: [./docs/public/data-sources.md](./docs/public/data-sources.md)
+
+### Developer Docs (Internal)
+- **Product & Architecture**: [./docs/internal/03-architecture/04-feature-function-list.md](./docs/internal/03-architecture/04-feature-function-list.md)
+- **Workflows (Accounting)**: [./docs/internal/02-product-design-ux-ui/](./docs/internal/02-product-design-ux-ui/)
+- **Development Plan**: [./docs/internal/04-development/AI-Transformation-Development-Plan.md](./docs/internal/04-development/AI-Transformation-Development-Plan.md)
